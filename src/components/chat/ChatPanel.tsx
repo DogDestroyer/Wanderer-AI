@@ -192,7 +192,7 @@ export function ChatPanel() {
       const res = await fetch('/api/enhance', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text }),
+        body: JSON.stringify({ text, trip: activeTrip ?? null }),
       })
       if (!res.ok) {
         const err = await res.text().catch(() => `Status ${res.status}`)
