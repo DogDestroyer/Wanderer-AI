@@ -7,6 +7,7 @@ import { useStore } from '@/lib/store'
 import type { ChatMessage, AgentTripResponse } from '@/lib/types'
 import { cn } from '@/lib/utils'
 import { AgentSettingsPanel } from './AgentSettingsPanel'
+import { showToast } from '@/components/ui/Toast'
 
 // ─── ChatPanel ─────────────────────────────────────────────────────────────────
 // Persistent chat interface. When no trip exists, messages are stored under the
@@ -230,9 +231,18 @@ export function ChatPanel() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text }),
       })
-      if (!res.ok) return
-      const { enhanced } = await res.json()
-      if (enhanced) {
+
+      if (!res.ok) {
+        const err = await res.text().catch(() => `Status ${res.status}`)
+        console.error('[enhance] API error:', res.status, err)
+        showToast({ message: 'Could not enhance prompt — try again', type: 'warning' })
+        return
+      }
+
+      const data = await res.json()
+      const enhanced: string | undefined = data.enhanced
+
+      if (enhanced && enhanced !== text) {
         setInput(enhanced)
         requestAnimationFrame(() => {
           const el = textareaRef.current
@@ -241,9 +251,13 @@ export function ChatPanel() {
           el.style.height = `${Math.min(el.scrollHeight, 120)}px`
           el.focus()
         })
+        showToast({ message: 'Prompt enhanced ✦', type: 'success' })
+      } else {
+        showToast({ message: 'Nothing to improve — prompt looks good!', type: 'info' })
       }
-    } catch {
-      // silently keep original text on error
+    } catch (err) {
+      console.error('[enhance] fetch error:', err)
+      showToast({ message: 'Could not reach the server — check your connection', type: 'warning' })
     } finally {
       setIsEnhancing(false)
     }
