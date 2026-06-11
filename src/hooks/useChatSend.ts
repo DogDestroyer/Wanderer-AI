@@ -116,6 +116,18 @@ export function useChatSend() {
 
       if (!res.ok || !res.body) throw new Error(`Server error: ${res.status}`)
 
+      // Guard against the proxy redirecting to the login page — in that case the
+      // fetch follows the redirect, gets back HTML with a 200 status, and res.ok
+      // is true even though we never reached the API route. Detect by Content-Type.
+      const contentType = res.headers.get('content-type') ?? ''
+      if (!contentType.includes('text/event-stream')) {
+        throw new Error(
+          res.status === 401 || res.status === 403
+            ? 'Session expired — please refresh the page and log in again.'
+            : 'Could not reach the AI server — please refresh and try again.'
+        )
+      }
+
       const reader  = res.body.getReader()
       const decoder = new TextDecoder()
       let buffer       = ''

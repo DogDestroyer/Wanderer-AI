@@ -13,6 +13,9 @@ interface AppState {
   // Persistence flag — prevents rendering stale server HTML client-side
   _hasHydrated: boolean
   setHasHydrated: (v: boolean) => void
+  // Called once after rehydration — clears any orphaned isStreaming flags from
+  // a previous session that ended mid-generation (prevents forever typing indicator)
+  cleanupAfterHydration: () => void
 
   // Exchange rates — transient, not persisted, refreshed every 24 h
   exchangeRates: RatesMap | null
@@ -112,6 +115,26 @@ export const useStore = create<AppState>()(
     (set, get) => ({
       _hasHydrated: false,
       setHasHydrated: (v) => set({ _hasHydrated: v }),
+
+      cleanupAfterHydration: () =>
+        set((s) => {
+          // Fix any assistant messages left with isStreaming:true (generation was
+          // interrupted by a reload before the stream completed). Without this they
+          // show a forever typing indicator after the page loads.
+          const chatHistory: Record<string, ChatMessage[]> = {}
+          for (const [key, msgs] of Object.entries(s.chatHistory)) {
+            chatHistory[key] = msgs.map((msg) =>
+              msg.isStreaming
+                ? {
+                    ...msg,
+                    isStreaming: false,
+                    content: msg.content || '_(Generation was interrupted — please resend your message.)_',
+                  }
+                : msg
+            )
+          }
+          return { chatHistory, _hasHydrated: true }
+        }),
 
       exchangeRates: null,
       ratesTimestamp: null,
@@ -341,7 +364,8 @@ export const useStore = create<AppState>()(
       storage: createJSONStorage(() => safeStorage),
       skipHydration: true,
       onRehydrateStorage: () => (state) => {
-        state?.setHasHydrated(true)
+        // cleanupAfterHydration sets _hasHydrated:true AND repairs orphaned streaming messages
+        state?.cleanupAfterHydration()
       },
       // Only persist trips, chatHistory, activeTripId, settings — not transient UI state
       partialize: (s) => ({

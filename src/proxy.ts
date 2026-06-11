@@ -12,8 +12,16 @@ export function proxy(request: NextRequest) {
 
   const { pathname } = request.nextUrl
 
-  // Always allow: landing page, login page, auth API
-  if (pathname === '/' || pathname === '/login' || pathname.startsWith('/api/auth')) {
+  // Always allow: landing page, login page, and all API routes.
+  // API routes are protected server-side by the Anthropic API key — they should
+  // NOT be cookie-gated here because a proxy redirect would cause fetch() to
+  // silently receive login-page HTML instead of the expected JSON/SSE response,
+  // making the app appear to "reload" rather than showing a real error.
+  if (
+    pathname === '/' ||
+    pathname === '/login' ||
+    pathname.startsWith('/api/')
+  ) {
     return NextResponse.next()
   }
 
