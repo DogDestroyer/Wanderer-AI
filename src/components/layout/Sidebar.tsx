@@ -14,10 +14,15 @@ function TripCard({ trip, isActive, onSelect, onDelete }: {
   const activeSuggestions = trip.suggestions?.filter((s) => !s.dismissed).length ?? 0
 
   return (
-    <button
+    // div + role="button" avoids the nested-<button> HTML spec violation
+    // (the delete button inside must remain a real <button> for accessibility)
+    <div
+      role="button"
+      tabIndex={0}
       onClick={onSelect}
+      onKeyDown={(e) => e.key === 'Enter' && onSelect()}
       className={cn(
-        'group w-full text-left px-3 py-2.5 rounded-lg transition-all duration-150',
+        'group w-full text-left px-3 py-2.5 rounded-lg transition-all duration-150 cursor-pointer',
         isActive
           ? 'bg-indigo-600 text-white'
           : 'text-slate-300 hover:bg-slate-800 hover:text-white'
@@ -57,7 +62,7 @@ function TripCard({ trip, isActive, onSelect, onDelete }: {
           </button>
         </div>
       </div>
-    </button>
+    </div>
   )
 }
 
@@ -102,8 +107,8 @@ export function Sidebar() {
         <div className="p-3 border-b border-slate-800">
           <button
             onClick={() => {
-              // Placeholder — agent chat will handle trip creation in Milestone 3
-              alert('Chat with the AI to create a new trip!')
+              setSidebarOpen(false)
+              document.dispatchEvent(new CustomEvent('wandr:focus-chat'))
             }}
             className="w-full flex items-center justify-center gap-2 py-2 px-3 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium transition-colors"
           >

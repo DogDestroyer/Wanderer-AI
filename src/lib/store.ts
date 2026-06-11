@@ -49,7 +49,7 @@ interface AppState {
 
   // ── Chat ──
   addChatMessage: (tripId: string, message: ChatMessage) => void
-  updateLastAssistantMessage: (tripId: string, content: string) => void
+  updateLastAssistantMessage: (tripId: string, content: string, isStreaming?: boolean) => void
   setIsGenerating: (v: boolean) => void
 
   // ── Suggestions ──
@@ -106,11 +106,18 @@ export const useStore = create<AppState>()(
       // ── Trip CRUD ──────────────────────────────────────────────────────────
 
       createTrip: (trip) =>
-        set((s) => ({
-          trips: { ...s.trips, [trip.id]: trip },
-          activeTripId: trip.id,
-          chatHistory: { ...s.chatHistory, [trip.id]: [] },
-        })),
+        set((s) => {
+          // Migrate any messages from the pre-trip '__new__' temp key into the real trip key
+          const { '__new__': newMsgs, ...restHistory } = s.chatHistory
+          return {
+            trips: { ...s.trips, [trip.id]: trip },
+            activeTripId: trip.id,
+            chatHistory: {
+              ...restHistory,
+              [trip.id]: newMsgs ?? [],
+            },
+          }
+        }),
 
       updateTrip: (tripId, patch) =>
         set((s) => ({ trips: patchTrip(s.trips, tripId, () => patch) })),
@@ -229,15 +236,17 @@ export const useStore = create<AppState>()(
           },
         })),
 
-      updateLastAssistantMessage: (tripId, content) =>
+      updateLastAssistantMessage: (tripId, content, isStreaming) =>
         set((s) => {
           const messages = s.chatHistory[tripId] ?? []
           const last = messages.length - 1
           if (last < 0 || messages[last].role !== 'assistant') return s
+          const updated = { ...messages[last], content }
+          if (isStreaming !== undefined) updated.isStreaming = isStreaming
           return {
             chatHistory: {
               ...s.chatHistory,
-              [tripId]: messages.map((m, i) => (i === last ? { ...m, content } : m)),
+              [tripId]: messages.map((m, i) => (i === last ? updated : m)),
             },
           }
         }),

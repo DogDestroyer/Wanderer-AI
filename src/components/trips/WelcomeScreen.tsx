@@ -60,7 +60,7 @@ export function WelcomeScreen() {
         </p>
         <button
           className="mt-8 flex items-center gap-2 px-7 py-3.5 bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 text-white text-sm font-semibold rounded-xl shadow-lg shadow-indigo-200 transition-all duration-150 hover:scale-[1.02]"
-          onClick={() => alert('Chat panel coming in Milestone 3!')}
+          onClick={() => document.dispatchEvent(new CustomEvent('wandr:focus-chat'))}
         >
           <Sparkles size={16} />
           Start planning your first trip
