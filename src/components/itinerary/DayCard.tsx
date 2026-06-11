@@ -5,7 +5,8 @@ import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { DollarSign } from 'lucide-react'
 import type { Day } from '@/lib/types'
 import { cn, formatDayLabel, formatCurrency, getWeatherEmoji, isBadWeather } from '@/lib/utils'
-import { calculateDayBudget, detectTimingConflicts } from '@/lib/recalculate'
+import { calculateDayBudgetConverted, detectTimingConflicts } from '@/lib/recalculate'
+import { type RatesMap, FALLBACK_RATES } from '@/lib/currency'
 import { SortableActivityCard } from './SortableActivityCard'
 
 interface DayCardProps {
@@ -13,12 +14,13 @@ interface DayCardProps {
   index: number
   tripCurrency: string
   isDraggingAny: boolean
+  rates?: RatesMap
 }
 
-export function DayCard({ day, index, tripCurrency, isDraggingAny }: DayCardProps) {
+export function DayCard({ day, index, tripCurrency, isDraggingAny, rates = FALLBACK_RATES }: DayCardProps) {
   const { activities, weather, dayNotes } = day
 
-  const dayTotal = calculateDayBudget(activities)
+  const dayTotal = calculateDayBudgetConverted(activities, tripCurrency, rates)
   const conflictIds = new Set(detectTimingConflicts(activities))
   const label = formatDayLabel(day.date, index)
   const activityIds = activities.map((a) => a.id)
@@ -109,6 +111,8 @@ export function DayCard({ day, index, tripCurrency, isDraggingAny }: DayCardProp
                   hasConflict={conflictIds.has(activity.id)}
                   prevTravelMins={actIdx > 0 ? activities[actIdx - 1].travelTimeToNextMinutes : 0}
                   isDraggingAny={isDraggingAny}
+                  budgetCurrency={tripCurrency}
+                  rates={rates}
                 />
               ))}
             </div>

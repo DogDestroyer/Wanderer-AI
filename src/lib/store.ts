@@ -3,6 +3,7 @@
 import { create } from 'zustand'
 import { persist, createJSONStorage } from 'zustand/middleware'
 import type { TripPlan, Day, Activity, ChatMessage, AgentSuggestion, WeatherForecast, AgentSettings, TripPreferences } from './types'
+import type { RatesMap } from './currency'
 import { DEFAULT_AGENT_SETTINGS, DEFAULT_PREFERENCES } from './types'
 import { recalculateDay } from './recalculate'
 
@@ -12,6 +13,11 @@ interface AppState {
   // Persistence flag — prevents rendering stale server HTML client-side
   _hasHydrated: boolean
   setHasHydrated: (v: boolean) => void
+
+  // Exchange rates — transient, not persisted, refreshed every 24 h
+  exchangeRates: RatesMap | null
+  ratesTimestamp: number | null
+  setExchangeRates: (rates: RatesMap, timestamp: number) => void
 
   // Core data
   trips: Record<string, TripPlan>
@@ -106,6 +112,10 @@ export const useStore = create<AppState>()(
     (set, get) => ({
       _hasHydrated: false,
       setHasHydrated: (v) => set({ _hasHydrated: v }),
+
+      exchangeRates: null,
+      ratesTimestamp: null,
+      setExchangeRates: (rates, timestamp) => set({ exchangeRates: rates, ratesTimestamp: timestamp }),
 
       trips: {},
       activeTripId: null,

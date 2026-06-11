@@ -5,6 +5,7 @@ import { CSS } from '@dnd-kit/utilities'
 import { GripVertical } from 'lucide-react'
 import type { Activity } from '@/lib/types'
 import { cn } from '@/lib/utils'
+import type { RatesMap } from '@/lib/currency'
 import { ActivityCard, TravelConnector } from './ActivityCard'
 
 interface Props {
@@ -13,6 +14,8 @@ interface Props {
   hasConflict: boolean
   prevTravelMins: number
   isDraggingAny: boolean
+  budgetCurrency?: string
+  rates?: RatesMap
 }
 
 export function SortableActivityCard({
@@ -21,6 +24,8 @@ export function SortableActivityCard({
   hasConflict,
   prevTravelMins,
   isDraggingAny,
+  budgetCurrency,
+  rates,
 }: Props) {
   const {
     attributes,
@@ -31,21 +36,33 @@ export function SortableActivityCard({
     isDragging,
   } = useSortable({ id: activity.id })
 
+  // When this card is the one being dragged, the DragOverlay handles visual
+  // movement — don't apply the transform here or the ghost will jump.
+  // For non-dragged sibling cards, keep the transform so they animate into
+  // their new positions as the active card moves past them.
   const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
+    transform: isDragging ? undefined : CSS.Transform.toString(transform),
+    transition: isDragging ? undefined : transition,
   }
 
   return (
-    <div ref={setNodeRef} style={style}>
+    // Outer wrapper: ONLY the TravelConnector lives here, outside setNodeRef.
+    // This matters for DragOverlay alignment: dnd-kit measures the setNodeRef
+    // element's bounding rect to position the overlay.  Including the connector
+    // in that rect shifts the overlay up by the connector height, causing the
+    // card to jump visually on pickup.
+    <div>
       {!isFirst && !isDraggingAny && (
         <TravelConnector minutes={prevTravelMins} />
       )}
 
+      {/* setNodeRef is on the card div only — matches the DragOverlay content exactly */}
       <div
+        ref={setNodeRef}
+        style={style}
         className={cn(
-          'relative group/sortable transition-transform duration-150',
-          isDragging ? 'opacity-20' : 'hover:-translate-y-px'
+          'relative group/sortable',
+          isDragging && 'opacity-20',
         )}
       >
         {/* Drag handle */}
@@ -69,6 +86,8 @@ export function SortableActivityCard({
           activity={activity}
           isFirst={isFirst}
           hasConflict={hasConflict}
+          budgetCurrency={budgetCurrency}
+          rates={rates}
         />
       </div>
     </div>

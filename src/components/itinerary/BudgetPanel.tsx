@@ -8,7 +8,8 @@ import {
   formatDayLabel,
   getCategoryEmoji,
 } from '@/lib/utils'
-import { calculateDayBudget, calculateTripBudget } from '@/lib/recalculate'
+import { calculateDayBudgetConverted, calculateTripBudgetConverted } from '@/lib/recalculate'
+import { convertCost, FALLBACK_RATES, type RatesMap } from '@/lib/currency'
 
 // ─── Category bar colours (muted for dark theme) ──────────────────────────────
 
@@ -32,15 +33,17 @@ const CATEGORY_LABEL: Record<ActivityCategory, string> = {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function getCategoryBreakdown(trip: TripPlan): Array<{
-  category: ActivityCategory; amount: number; count: number
-}> {
+function getCategoryBreakdown(
+  trip: TripPlan,
+  toCurrency: string,
+  rates: RatesMap,
+): Array<{ category: ActivityCategory; amount: number; count: number }> {
   const totals: Partial<Record<ActivityCategory, { amount: number; count: number }>> = {}
   for (const day of trip.days) {
     for (const act of day.activities) {
       const cat = act.category
       if (!totals[cat]) totals[cat] = { amount: 0, count: 0 }
-      totals[cat]!.amount += act.cost.amount
+      totals[cat]!.amount += convertCost(act.cost, toCurrency, rates)
       totals[cat]!.count += 1
     }
   }
@@ -55,11 +58,11 @@ function countFreeActivities(trip: TripPlan): number {
 
 // ─── BudgetPanel ──────────────────────────────────────────────────────────────
 
-export function BudgetPanel({ trip }: { trip: TripPlan }) {
+export function BudgetPanel({ trip, rates = FALLBACK_RATES }: { trip: TripPlan; rates?: RatesMap }) {
   const { days, budget } = trip
   const currency = budget.currency
 
-  const totalSpend = calculateTripBudget(days)
+  const totalSpend = calculateTripBudgetConverted(days, currency, rates)
   const cap = budget.cap
   const capSet = cap > 0
   const overBudget = capSet && totalSpend > cap
@@ -70,13 +73,13 @@ export function BudgetPanel({ trip }: { trip: TripPlan }) {
   const freeCount = countFreeActivities(trip)
   const dailyAvg = days.length > 0 ? totalSpend / days.length : 0
 
-  const categoryBreakdown = getCategoryBreakdown(trip)
+  const categoryBreakdown = getCategoryBreakdown(trip, currency, rates)
   const maxCatAmount = Math.max(...categoryBreakdown.map((c) => c.amount), 1)
 
   const dayTotals = days.map((day, idx) => ({
     id: day.id,
     label: formatDayLabel(day.date, idx),
-    total: calculateDayBudget(day.activities),
+    total: calculateDayBudgetConverted(day.activities, currency, rates),
     count: day.activities.length,
   }))
   const maxDayAmount = Math.max(...dayTotals.map((d) => d.total), 1)

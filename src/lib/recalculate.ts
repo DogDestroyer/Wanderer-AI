@@ -1,4 +1,5 @@
 import { Activity, Day } from './types'
+import { convertCost, type RatesMap } from './currency'
 
 const DEFAULT_TRAVEL_MINS = 15
 
@@ -54,12 +55,37 @@ export function recalculateDay(activities: Activity[]): Activity[] {
 
 // ─── Budget helpers ───────────────────────────────────────────────────────────
 
+// Raw sum — kept for legacy callers; do NOT use for display.
+// This ignores currency and sums raw amounts, which produces nonsense for
+// mixed-currency trips (e.g. ¥163,000 + $40 = 163,040 treated as one currency).
 export function calculateDayBudget(activities: Activity[]): number {
   return activities.reduce((sum, a) => sum + (a.cost?.amount ?? 0), 0)
 }
 
 export function calculateTripBudget(days: Day[]): number {
   return days.reduce((sum, d) => sum + calculateDayBudget(d.activities), 0)
+}
+
+// ─── Currency-aware equivalents (use these everywhere for display) ────────────
+
+/**
+ * Sum activity costs, converting each to toCurrency first.
+ * This is the correct aggregation function for mixed-currency trips.
+ */
+export function calculateDayBudgetConverted(
+  activities: Activity[],
+  toCurrency: string,
+  rates: RatesMap,
+): number {
+  return activities.reduce((sum, a) => sum + convertCost(a.cost, toCurrency, rates), 0)
+}
+
+export function calculateTripBudgetConverted(
+  days: Day[],
+  toCurrency: string,
+  rates: RatesMap,
+): number {
+  return days.reduce((sum, d) => sum + calculateDayBudgetConverted(d.activities, toCurrency, rates), 0)
 }
 
 // ─── Conflict detection ───────────────────────────────────────────────────────

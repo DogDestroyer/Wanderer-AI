@@ -7,15 +7,17 @@ import {
   DragOverlay,
   PointerSensor,
   TouchSensor,
+  MeasuringStrategy,
   useSensor,
   useSensors,
   closestCorners,
   type DragStartEvent,
   type DragOverEvent,
   type DragEndEvent,
+  type Modifier,
 } from '@dnd-kit/core'
 import { arrayMove } from '@dnd-kit/sortable'
-import { MapPin, Calendar, DollarSign, Gauge, Star, SlidersHorizontal } from 'lucide-react'
+import { MapPin, Calendar, DollarSign, Gauge, Star, SlidersHorizontal, AlertTriangle } from 'lucide-react'
 import type { TripPlan, Day, Activity } from '@/lib/types'
 import { useStore } from '@/lib/store'
 import {
@@ -26,7 +28,8 @@ import {
   getPaceLabel,
   getBudgetLabel,
 } from '@/lib/utils'
-import { calculateTripBudget } from '@/lib/recalculate'
+import { calculateTripBudgetConverted } from '@/lib/recalculate'
+import { useExchangeRates } from '@/hooks/useExchangeRates'
 import { DayCard } from './DayCard'
 import { ActivityCard } from './ActivityCard'
 import { BudgetPanel } from './BudgetPanel'
@@ -39,6 +42,9 @@ interface ItineraryViewProps {
   trip: TripPlan
 }
 
+// ─── Drag modifier: restrict to vertical axis only ───────────────────────────
+const restrictToVerticalAxis: Modifier = ({ transform }) => ({ ...transform, x: 0 })
+
 export function ItineraryView({ trip }: ItineraryViewProps) {
   const { name, destination, startDate, endDate, budget, preferences } = trip
 
@@ -46,6 +52,9 @@ export function ItineraryView({ trip }: ItineraryViewProps) {
   const moveActivity = useStore((s) => s.moveActivity)
   const updateTrip = useStore((s) => s.updateTrip)
   const isGenerating = useStore((s) => s.isGenerating)
+
+  // Currency conversion — fetches live rates on mount, falls back to hardcoded table
+  const rates = useExchangeRates()
 
   const [activeTab, setActiveTab] = useState<'itinerary' | 'budget' | 'map'>('itinerary')
   const [showSliders, setShowSliders] = useState(false)
@@ -150,11 +159,14 @@ export function ItineraryView({ trip }: ItineraryViewProps) {
     showToast({ message: 'Re-planning with new preferences…', type: 'info' })
   }
 
-  const spent = calculateTripBudget(trip.days)
+  const spent = calculateTripBudgetConverted(trip.days, budget.currency, rates)
   const capSet = budget.cap > 0
   const overBudget = capSet && spent > budget.cap
   const spentPct = capSet ? Math.min((spent / budget.cap) * 100, 100) : 0
   const overlayActivity = activeDragId ? findActivity(activeDragId) : null
+
+  // Detect probable currency error: converted total > 5× the stated cap
+  const hasCurrencyError = capSet && spent > 5 * budget.cap
 
   return (
     <div className="flex flex-col h-full bg-[#0a0a0a]">
@@ -225,6 +237,30 @@ export function ItineraryView({ trip }: ItineraryViewProps) {
           </div>
         )}
 
+        {/* Currency error warning — shown when converted total is >5× the cap,
+            which almost always means the agent mixed up currency codes */}
+        {hasCurrencyError && (
+          <div className="mt-3 flex items-start gap-2 px-3 py-2 bg-[#1a0e00] border border-[#5a3a00] rounded-lg">
+            <AlertTriangle size={13} className="text-[#f59e0b] shrink-0 mt-0.5" />
+            <p className="text-[11px] text-[#f59e0b] leading-snug">
+              Currency mismatch detected — costs may use wrong currency codes.
+              {' '}
+              <button
+                onClick={() => {
+                  document.dispatchEvent(new CustomEvent('wandr:send-message', {
+                    detail: {
+                      message: `The budget tracker shows ${formatCurrency(spent, budget.currency)} against a ${formatCurrency(budget.cap, budget.currency)} cap, which is more than 5× over — this usually means activity costs have the wrong ISO currency code. Please check every activity's cost.currency field (e.g. use JPY for yen, not USD), then resend the corrected plan.`,
+                    },
+                  }))
+                }}
+                className="underline hover:text-[#fbbf24] transition-colors"
+              >
+                Ask agent to fix →
+              </button>
+            </p>
+          </div>
+        )}
+
         {/* Interest tags */}
         {preferences?.interests && preferences.interests.length > 0 && (
           <div className="flex flex-wrap gap-1 mt-3">
@@ -277,7 +313,7 @@ export function ItineraryView({ trip }: ItineraryViewProps) {
       </div>
 
       {/* ── Budget panel ─────────────────────────────────────────────────────── */}
-      {activeTab === 'budget' && <BudgetPanel trip={trip} />}
+      {activeTab === 'budget' && <BudgetPanel trip={trip} rates={rates} />}
 
       {/* ── Map panel ────────────────────────────────────────────────────────── */}
       {activeTab === 'map' && (
@@ -301,6 +337,8 @@ export function ItineraryView({ trip }: ItineraryViewProps) {
             <DndContext
               sensors={sensors}
               collisionDetection={closestCorners}
+              modifiers={[restrictToVerticalAxis]}
+              measuring={{ droppable: { strategy: MeasuringStrategy.Always } }}
               onDragStart={handleDragStart}
               onDragOver={handleDragOver}
               onDragEnd={handleDragEnd}
@@ -325,16 +363,29 @@ export function ItineraryView({ trip }: ItineraryViewProps) {
                       index={index}
                       tripCurrency={budget.currency}
                       isDraggingAny={activeDragId !== null}
+                      rates={rates}
                     />
                   </motion.div>
                 ))}
               </motion.div>
 
-              {/* Drag overlay ghost */}
-              <DragOverlay dropAnimation={null}>
+              {/* Drag overlay — renders the floating card under the cursor.
+                  dropAnimation gives a smooth snap-back when dropped. */}
+              <DragOverlay
+                dropAnimation={{
+                  duration: 200,
+                  easing: 'cubic-bezier(0.18, 0.67, 0.6, 1.22)',
+                }}
+              >
                 {overlayActivity && (
-                  <div className="shadow-2xl shadow-black/60 rounded-xl bg-[#1a1a1a] border border-[#333] opacity-90 rotate-1 scale-[1.02]">
-                    <ActivityCard activity={overlayActivity} isFirst={false} hasConflict={false} />
+                  <div className="shadow-2xl shadow-black/60 rounded-xl overflow-hidden opacity-95 scale-[1.02] origin-top-left">
+                    <ActivityCard
+                      activity={overlayActivity}
+                      isFirst={false}
+                      hasConflict={false}
+                      budgetCurrency={budget.currency}
+                      rates={rates}
+                    />
                   </div>
                 )}
               </DragOverlay>

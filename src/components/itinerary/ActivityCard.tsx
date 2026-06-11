@@ -9,6 +9,7 @@ import {
   formatCurrency,
   getCategoryEmoji,
 } from '@/lib/utils'
+import { convertCost, formatConvertedHint, type RatesMap } from '@/lib/currency'
 
 // ─── Category badge colours (dark-theme) ──────────────────────────────────────
 
@@ -44,9 +45,13 @@ interface ActivityCardProps {
   activity: Activity
   isFirst: boolean
   hasConflict?: boolean
+  /** The trip's budget/display currency.  When set and different from the activity's
+   *  own currency, a muted converted hint is shown, e.g. "¥2,500  ~$17". */
+  budgetCurrency?: string
+  rates?: RatesMap
 }
 
-export function ActivityCard({ activity, isFirst, hasConflict }: ActivityCardProps) {
+export function ActivityCard({ activity, isFirst, hasConflict, budgetCurrency, rates }: ActivityCardProps) {
   const {
     title,
     description,
@@ -62,6 +67,16 @@ export function ActivityCard({ activity, isFirst, hasConflict }: ActivityCardPro
 
   const categoryBadge = getCategoryDark(category)
   const categoryEmoji = getCategoryEmoji(category)
+
+  // Dual-currency: show local amount + muted budget-currency hint when currencies differ
+  const showDualCurrency =
+    cost.amount > 0 &&
+    !!budgetCurrency &&
+    !!rates &&
+    cost.currency.toUpperCase() !== budgetCurrency.toUpperCase()
+  const convertedAmount = showDualCurrency
+    ? convertCost(cost, budgetCurrency!, rates!)
+    : null
 
   return (
     <div
@@ -119,14 +134,19 @@ export function ActivityCard({ activity, isFirst, hasConflict }: ActivityCardPro
               <CloudRain size={10} className="text-[#5a9fd4] shrink-0" />
             )}
           </div>
-          {/* Cost */}
+          {/* Cost — local currency primary, budget-currency hint when they differ */}
           {cost.amount > 0 && (
-            <span className="text-[11px] font-semibold text-[#888] shrink-0 tabular-nums">
-              {formatCurrency(cost.amount, cost.currency)}
-              {cost.isEstimate && (
-                <span className="text-[#444] font-normal">~</span>
+            <div className="flex flex-col items-end shrink-0">
+              <span className="text-[11px] font-semibold text-[#888] tabular-nums">
+                {formatCurrency(cost.amount, cost.currency)}
+                {cost.isEstimate && <span className="text-[#444] font-normal"> ~</span>}
+              </span>
+              {convertedAmount !== null && (
+                <span className="text-[10px] text-[#444] tabular-nums leading-tight">
+                  ~{formatConvertedHint(convertedAmount, budgetCurrency!)}
+                </span>
               )}
-            </span>
+            </div>
           )}
         </div>
 

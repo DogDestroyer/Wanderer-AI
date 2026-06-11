@@ -163,6 +163,21 @@ Always use **"create_trip"**. Never use replace_trip, replace_day_activities, or
 - Use accurate latitude/longitude coordinates
 - For trips longer than 10 days, plan 3–4 activities per day (not 5–6) to stay within output limits
 
+## Currency rules (CRITICAL — wrong codes cause budget chaos)
+- Every cost MUST include the correct ISO 4217 currency code for where that cost occurs.
+- Use the LOCAL destination currency for in-country costs: JPY for Japan, THB for Thailand, EUR for Europe, etc.
+- NEVER use USD as a catch-all for foreign costs. ¥2,500 ramen must be { amount: 2500, currency: "JPY" }, not { amount: 2500, currency: "USD" }.
+- Transport within a country: use that country's currency. International flights: use the currency of the booking (often USD or EUR).
+- Accommodation abroad: use the local currency unless priced in USD/EUR (boutique/international chains may quote USD).
+- Sanity-check your own output BEFORE writing the JSON:
+  - Tokyo ramen: ¥800–2,500 (not ¥8,000, not $15)
+  - Tokyo mid-range hotel/night: ¥12,000–30,000
+  - Bangkok street food: ฿50–200
+  - Paris café lunch: €15–30
+  - NYC dinner: $25–80
+  If an amount looks implausible for the destination, fix it before sending.
+- The budget.currency field on the TripPlan is the user's REPORTING currency (e.g. "USD"). Activity costs should still use local currencies — the app converts them automatically.
+
 ## AgentTripPatch (for replace_day_activities and update_trip_meta)
 
 {
