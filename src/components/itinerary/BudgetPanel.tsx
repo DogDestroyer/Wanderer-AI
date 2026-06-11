@@ -10,15 +10,15 @@ import {
 } from '@/lib/utils'
 import { calculateDayBudget, calculateTripBudget } from '@/lib/recalculate'
 
-// ─── Category colours (matches ActivityCard badges) ───────────────────────────
+// ─── Category bar colours (muted for dark theme) ──────────────────────────────
 
 const CATEGORY_BAR: Record<ActivityCategory, string> = {
-  attraction:    'bg-violet-500',
-  food:          'bg-amber-500',
-  transport:     'bg-sky-500',
-  accommodation: 'bg-emerald-500',
-  experience:    'bg-rose-500',
-  leisure:       'bg-teal-500',
+  attraction:    'bg-[#9d7ff0]',
+  food:          'bg-[#d4a017]',
+  transport:     'bg-[#5a9fd4]',
+  accommodation: 'bg-[#3eb87a]',
+  experience:    'bg-[#e07a8f]',
+  leisure:       'bg-[#3dbfbf]',
 }
 
 const CATEGORY_LABEL: Record<ActivityCategory, string> = {
@@ -33,12 +33,9 @@ const CATEGORY_LABEL: Record<ActivityCategory, string> = {
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function getCategoryBreakdown(trip: TripPlan): Array<{
-  category: ActivityCategory
-  amount: number
-  count: number
+  category: ActivityCategory; amount: number; count: number
 }> {
   const totals: Partial<Record<ActivityCategory, { amount: number; count: number }>> = {}
-
   for (const day of trip.days) {
     for (const act of day.activities) {
       const cat = act.category
@@ -47,7 +44,6 @@ function getCategoryBreakdown(trip: TripPlan): Array<{
       totals[cat]!.count += 1
     }
   }
-
   return (Object.entries(totals) as [ActivityCategory, { amount: number; count: number }][])
     .map(([category, { amount, count }]) => ({ category, amount, count }))
     .sort((a, b) => b.amount - a.amount)
@@ -87,82 +83,69 @@ export function BudgetPanel({ trip }: { trip: TripPlan }) {
 
   return (
     <div className="flex-1 overflow-y-auto">
-      <div className="p-4 md:p-6 max-w-2xl mx-auto w-full pb-10 space-y-5">
+      <div className="p-4 md:p-6 max-w-2xl mx-auto w-full pb-10 space-y-4">
 
         {/* ── Summary stat cards ──────────────────────────────────────────────── */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
           <StatCard
-            icon={<DollarSign size={15} className="text-indigo-500" />}
+            icon={<DollarSign size={14} className="text-[#888]" />}
             label="Total spend"
             value={formatCurrency(totalSpend, currency)}
             sub={capSet ? `of ${formatCurrency(cap, currency)}` : undefined}
             highlight={overBudget ? 'red' : undefined}
           />
           <StatCard
-            icon={<TrendingUp size={15} className="text-emerald-500" />}
+            icon={<TrendingUp size={14} className="text-[#888]" />}
             label={capSet ? 'Remaining' : 'Daily avg'}
-            value={
-              capSet
-                ? formatCurrency(Math.abs(remaining ?? 0), currency)
-                : formatCurrency(dailyAvg, currency)
-            }
+            value={capSet ? formatCurrency(Math.abs(remaining ?? 0), currency) : formatCurrency(dailyAvg, currency)}
             sub={capSet && overBudget ? 'over budget' : capSet ? 'left to spend' : 'per day'}
             highlight={capSet && overBudget ? 'red' : capSet ? 'green' : undefined}
           />
           <StatCard
-            icon={<Calendar size={15} className="text-sky-500" />}
+            icon={<Calendar size={14} className="text-[#888]" />}
             label="Daily avg"
             value={formatCurrency(dailyAvg, currency)}
             sub={`${days.length} ${days.length === 1 ? 'day' : 'days'}`}
           />
           <StatCard
-            icon={<Sparkles size={15} className="text-amber-500" />}
+            icon={<Sparkles size={14} className="text-[#888]" />}
             label="Free activities"
             value={`${freeCount}`}
             sub={`of ${totalActivities} total`}
           />
         </div>
 
-        {/* ── Overall progress bar ────────────────────────────────────────────── */}
+        {/* ── Overall progress bar ─────────────────────────────────────────── */}
         {capSet && (
-          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
+          <div className="bg-[#111111] rounded-xl border border-[#1f1f1f] p-4">
             <div className="flex items-center justify-between mb-3">
-              <p className="text-sm font-semibold text-gray-800">Budget overview</p>
+              <p className="text-[13px] font-semibold text-[#f0f0f0]">Budget overview</p>
               <span
                 className={cn(
-                  'text-xs font-semibold px-2 py-0.5 rounded-full',
-                  overBudget
-                    ? 'bg-red-50 text-red-600'
-                    : 'bg-emerald-50 text-emerald-600'
+                  'text-[11px] font-semibold px-2 py-0.5 rounded-full',
+                  overBudget ? 'bg-[#1a0d0d] text-[#ef4444]' : 'bg-[#0d1a0d] text-[#22c55e]'
                 )}
               >
                 {overBudget ? `${Math.round(spentPct)}% — over limit` : `${Math.round(spentPct)}% used`}
               </span>
             </div>
-            <div className="h-3 bg-gray-100 rounded-full overflow-hidden">
+            <div className="h-2 bg-[#1a1a1a] rounded-full overflow-hidden">
               <div
-                className={cn(
-                  'h-full rounded-full transition-all duration-700',
-                  overBudget ? 'bg-red-500' : 'bg-indigo-500'
-                )}
+                className={cn('h-full rounded-full transition-all duration-700', overBudget ? 'bg-[#ef4444]' : 'bg-white')}
                 style={{ width: `${spentPct}%` }}
               />
             </div>
             <div className="flex justify-between mt-1.5">
-              <span className="text-[11px] text-gray-500">
-                {formatCurrency(totalSpend, currency)} spent
-              </span>
-              <span className="text-[11px] text-gray-400">
-                {formatCurrency(cap, currency)} cap
-              </span>
+              <span className="text-[11px] text-[#555]">{formatCurrency(totalSpend, currency)} spent</span>
+              <span className="text-[11px] text-[#444]">{formatCurrency(cap, currency)} cap</span>
             </div>
           </div>
         )}
 
-        {/* ── Category breakdown ──────────────────────────────────────────────── */}
+        {/* ── Category breakdown ─────────────────────────────────────────────── */}
         {categoryBreakdown.length > 0 && (
-          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
-            <p className="text-sm font-semibold text-gray-800 mb-4">Spend by category</p>
+          <div className="bg-[#111111] rounded-xl border border-[#1f1f1f] p-4">
+            <p className="text-[13px] font-semibold text-[#f0f0f0] mb-4">Spend by category</p>
             <div className="space-y-3">
               {categoryBreakdown.map(({ category, amount, count }) => {
                 const pct = (amount / maxCatAmount) * 100
@@ -171,24 +154,20 @@ export function BudgetPanel({ trip }: { trip: TripPlan }) {
                   <div key={category}>
                     <div className="flex items-center justify-between mb-1">
                       <div className="flex items-center gap-1.5">
-                        <span className="text-base leading-none">{getCategoryEmoji(category)}</span>
-                        <span className="text-xs font-medium text-gray-700">
-                          {CATEGORY_LABEL[category]}
-                        </span>
-                        <span className="text-[10px] text-gray-400">
-                          {count} {count === 1 ? 'item' : 'items'}
-                        </span>
+                        <span className="text-sm leading-none">{getCategoryEmoji(category)}</span>
+                        <span className="text-[12px] font-medium text-[#888]">{CATEGORY_LABEL[category]}</span>
+                        <span className="text-[10px] text-[#444]">{count} {count === 1 ? 'item' : 'items'}</span>
                       </div>
                       <div className="flex items-center gap-2">
-                        <span className="text-[10px] text-gray-400">{ofTotal}%</span>
-                        <span className="text-xs font-semibold text-gray-700 w-16 text-right">
+                        <span className="text-[10px] text-[#444]">{ofTotal}%</span>
+                        <span className="text-[11px] font-semibold text-[#888] w-16 text-right tabular-nums">
                           {formatCurrency(amount, currency)}
                         </span>
                       </div>
                     </div>
-                    <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+                    <div className="h-1.5 bg-[#1a1a1a] rounded-full overflow-hidden">
                       <div
-                        className={cn('h-full rounded-full transition-all duration-500', CATEGORY_BAR[category])}
+                        className={cn('h-full rounded-full transition-all duration-500 opacity-70', CATEGORY_BAR[category])}
                         style={{ width: `${pct}%` }}
                       />
                     </div>
@@ -199,10 +178,10 @@ export function BudgetPanel({ trip }: { trip: TripPlan }) {
           </div>
         )}
 
-        {/* ── Per-day breakdown ──────────────────────────────────────────────── */}
+        {/* ── Per-day breakdown ─────────────────────────────────────────────── */}
         {dayTotals.length > 0 && (
-          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
-            <p className="text-sm font-semibold text-gray-800 mb-4">Spend by day</p>
+          <div className="bg-[#111111] rounded-xl border border-[#1f1f1f] p-4">
+            <p className="text-[13px] font-semibold text-[#f0f0f0] mb-4">Spend by day</p>
             <div className="space-y-3">
               {dayTotals.map(({ id, label, total, count }) => {
                 const pct = (total / maxDayAmount) * 100
@@ -211,27 +190,23 @@ export function BudgetPanel({ trip }: { trip: TripPlan }) {
                   <div key={id}>
                     <div className="flex items-center justify-between mb-1">
                       <div className="flex items-center gap-2">
-                        <span className="text-xs font-medium text-gray-700 truncate max-w-[160px]">
-                          {label}
-                        </span>
+                        <span className="text-[12px] font-medium text-[#888] truncate max-w-[160px]">{label}</span>
                         {isExpensive && (
-                          <span className="text-[9px] font-semibold text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded-full">
-                            MOST EXPENSIVE
+                          <span className="text-[9px] font-bold text-[#555] bg-[#1a1a1a] border border-[#2a2a2a] px-1.5 py-0.5 rounded-full tracking-wide">
+                            HIGHEST
                           </span>
                         )}
                       </div>
                       <div className="flex items-center gap-2">
-                        <span className="text-[10px] text-gray-400">
-                          {count} {count === 1 ? 'activity' : 'activities'}
-                        </span>
-                        <span className="text-xs font-semibold text-gray-700 w-16 text-right">
+                        <span className="text-[10px] text-[#444]">{count} {count === 1 ? 'activity' : 'activities'}</span>
+                        <span className="text-[11px] font-semibold text-[#888] w-16 text-right tabular-nums">
                           {total > 0 ? formatCurrency(total, currency) : 'Free'}
                         </span>
                       </div>
                     </div>
-                    <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+                    <div className="h-1.5 bg-[#1a1a1a] rounded-full overflow-hidden">
                       <div
-                        className="h-full rounded-full bg-indigo-400 transition-all duration-500"
+                        className="h-full rounded-full bg-white/20 transition-all duration-500"
                         style={{ width: total > 0 ? `${pct}%` : '0%' }}
                       />
                     </div>
@@ -242,11 +217,11 @@ export function BudgetPanel({ trip }: { trip: TripPlan }) {
           </div>
         )}
 
-        {/* ── Empty state ─────────────────────────────────────────────────────── */}
+        {/* ── Empty state ────────────────────────────────────────────────────── */}
         {totalActivities === 0 && (
           <div className="text-center py-16">
-            <p className="text-gray-400 text-sm">No activities yet — nothing to budget.</p>
-            <p className="text-gray-300 text-xs mt-1">Ask the AI to plan your trip first.</p>
+            <p className="text-[#444] text-sm">No activities yet — nothing to budget.</p>
+            <p className="text-[#333] text-xs mt-1">Ask the AI to plan your trip first.</p>
           </div>
         )}
       </div>
@@ -256,13 +231,7 @@ export function BudgetPanel({ trip }: { trip: TripPlan }) {
 
 // ─── StatCard ─────────────────────────────────────────────────────────────────
 
-function StatCard({
-  icon,
-  label,
-  value,
-  sub,
-  highlight,
-}: {
+function StatCard({ icon, label, value, sub, highlight }: {
   icon: React.ReactNode
   label: string
   value: string
@@ -270,21 +239,20 @@ function StatCard({
   highlight?: 'red' | 'green'
 }) {
   return (
-    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-3">
-      <div className="flex items-center gap-1.5 mb-2">{icon}
-        <span className="text-[11px] text-gray-500 font-medium">{label}</span>
+    <div className="bg-[#111111] rounded-xl border border-[#1f1f1f] p-3">
+      <div className="flex items-center gap-1.5 mb-2">
+        {icon}
+        <span className="text-[10px] text-[#555] font-medium">{label}</span>
       </div>
-      <p
-        className={cn(
-          'text-lg font-bold leading-tight',
-          highlight === 'red' ? 'text-red-600' :
-          highlight === 'green' ? 'text-emerald-600' :
-          'text-gray-900'
-        )}
-      >
+      <p className={cn(
+        'text-base font-bold leading-tight tabular-nums',
+        highlight === 'red' ? 'text-[#ef4444]' :
+        highlight === 'green' ? 'text-[#22c55e]' :
+        'text-[#f0f0f0]'
+      )}>
         {value}
       </p>
-      {sub && <p className="text-[10px] text-gray-400 mt-0.5">{sub}</p>}
+      {sub && <p className="text-[10px] text-[#444] mt-0.5">{sub}</p>}
     </div>
   )
 }

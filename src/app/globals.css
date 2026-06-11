@@ -1,55 +1,50 @@
 @import "tailwindcss";
 
-/* ── Design tokens ─────────────────────────────────────────────────────────── */
+/* ── Hodo Design Tokens ──────────────────────────────────────────────────────── */
 :root {
-  --background: #ffffff;
-  --foreground: #0f172a;
-  --muted: #f8fafc;
-  --muted-foreground: #64748b;
-  --border: #e2e8f0;
-  --card: #ffffff;
-  --primary: #4f46e5;
-  --primary-foreground: #ffffff;
-  --sidebar-bg: #0f172a;
-  --success: #10b981;
-  --warning: #f59e0b;
-  --destructive: #ef4444;
+  --bg:              #0a0a0a;
+  --surface:         #111111;
+  --surface-raised:  #161616;
+  --border:          #1f1f1f;
+  --border-subtle:   #2a2a2a;
+  --text:            #f0f0f0;
+  --text-muted:      #888888;
+  --text-faint:      #444444;
+  --accent:          #ffffff;
+  --success:         #22c55e;
+  --warning:         #f59e0b;
+  --destructive:     #ef4444;
 }
 
 @theme inline {
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --color-muted: var(--muted);
-  --color-muted-foreground: var(--muted-foreground);
-  --color-border: var(--border);
-  --color-primary: var(--primary);
-  --color-primary-foreground: var(--primary-foreground);
-  --color-sidebar: var(--sidebar-bg);
-  --color-success: var(--success);
-  --color-warning: var(--warning);
+  --color-background: var(--bg);
+  --color-foreground: var(--text);
+  --color-border:     var(--border);
+  --color-success:    var(--success);
+  --color-warning:    var(--warning);
   --color-destructive: var(--destructive);
 }
 
-/* ── Base ───────────────────────────────────────────────────────────────────── */
+/* ── Base ────────────────────────────────────────────────────────────────────── */
 *, *::before, *::after { box-sizing: border-box; }
 html, body { height: 100%; }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
+  background: var(--bg);
+  color: var(--text);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* ── Scrollbar ──────────────────────────────────────────────────────────────── */
-::-webkit-scrollbar { width: 5px; height: 5px; }
+/* ── Scrollbar ───────────────────────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 4px; height: 4px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 99px; }
-::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+::-webkit-scrollbar-thumb { background: #2a2a2a; border-radius: 99px; }
+::-webkit-scrollbar-thumb:hover { background: #333333; }
 
-/* ── Utility ────────────────────────────────────────────────────────────────── */
+/* ── Utility ─────────────────────────────────────────────────────────────────── */
 .animate-in {
   animation: fadeSlideIn 0.2s ease-out both;
 }
@@ -60,14 +55,15 @@ body {
 }
 
 /* Activity card drag ghost */
-.dnd-dragging { opacity: 0.4; }
-.dnd-over     { outline: 2px dashed #4f46e5; border-radius: 12px; }
+.dnd-dragging { opacity: 0.3; }
+.dnd-over     { outline: 1px solid #333333; border-radius: 12px; }
 
-/* ── Leaflet popup overrides ────────────────────────────────────────────────── */
+/* ── Leaflet popup overrides (dark) ─────────────────────────────────────────── */
 .leaflet-popup-content-wrapper {
   border-radius: 10px !important;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.12) !important;
-  border: 1px solid #e2e8f0;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6) !important;
+  border: 1px solid #2a2a2a !important;
+  background: #111111 !important;
   padding: 0 !important;
 }
 .leaflet-popup-content {
@@ -75,14 +71,17 @@ body {
   font-family: inherit !important;
   font-size: 13px !important;
   line-height: 1.5 !important;
-  color: #1e293b;
+  color: #f0f0f0 !important;
 }
 .leaflet-popup-tip-container { margin-top: -1px; }
-.leaflet-popup-tip { box-shadow: none !important; background: #ffffff !important; }
+.leaflet-popup-tip { box-shadow: none !important; background: #111111 !important; }
 .leaflet-popup-close-button {
   top: 6px !important;
   right: 7px !important;
-  color: #94a3b8 !important;
+  color: #555555 !important;
   font-size: 16px !important;
 }
-.leaflet-popup-close-button:hover { color: #4f46e5 !important; }
+.leaflet-popup-close-button:hover { color: #f0f0f0 !important; }
+
+/* Leaflet tiles dark override */
+.leaflet-tile-pane { filter: brightness(0.7) invert(1) hue-rotate(180deg) saturate(0.4); }

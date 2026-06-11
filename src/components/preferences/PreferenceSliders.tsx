@@ -5,7 +5,6 @@ import { Gauge, Star, RefreshCw } from 'lucide-react'
 import { cn, getPaceLabel, getBudgetLabel } from '@/lib/utils'
 
 interface PreferenceSlidersProps {
-  /** Current saved values from the trip */
   savedPace: number
   savedBudget: number
   isGenerating: boolean
@@ -25,9 +24,8 @@ export function PreferenceSliders({
 
   return (
     <div className="space-y-4">
-      {/* Pace slider */}
       <SliderRow
-        icon={<Gauge size={12} className="text-indigo-400" />}
+        icon={<Gauge size={11} className="text-[#555]" />}
         label="Pace"
         valueLabel={getPaceLabel(pace)}
         value={pace}
@@ -35,10 +33,8 @@ export function PreferenceSliders({
         leftHint="Relaxed"
         rightHint="Packed"
       />
-
-      {/* Budget slider */}
       <SliderRow
-        icon={<Star size={12} className="text-indigo-400" />}
+        icon={<Star size={11} className="text-[#555]" />}
         label="Budget style"
         valueLabel={getBudgetLabel(budget)}
         value={budget}
@@ -47,24 +43,19 @@ export function PreferenceSliders({
         rightHint="Luxury"
       />
 
-      {/* Apply button — only visible when values have changed */}
-      <div
-        className={cn(
-          'overflow-hidden transition-all duration-200',
-          isDirty ? 'max-h-20 opacity-100' : 'max-h-0 opacity-0'
-        )}
-      >
+      {/* Apply button */}
+      <div className={cn('overflow-hidden transition-all duration-200', isDirty ? 'max-h-20 opacity-100' : 'max-h-0 opacity-0')}>
         <button
           onClick={() => onApply(pace, budget)}
           disabled={isGenerating}
           className={cn(
-            'w-full flex items-center justify-center gap-2 py-2 rounded-xl text-sm font-semibold',
-            'bg-indigo-600 text-white hover:bg-indigo-500 active:bg-indigo-700',
-            'disabled:bg-indigo-300 disabled:cursor-not-allowed',
-            'transition-colors shadow-sm shadow-indigo-200',
+            'w-full flex items-center justify-center gap-2 py-2 rounded-lg text-[13px] font-semibold',
+            'bg-white text-black hover:bg-[#e8e8e8] active:bg-[#d0d0d0]',
+            'disabled:bg-[#1a1a1a] disabled:text-[#444] disabled:cursor-not-allowed',
+            'transition-colors',
           )}
         >
-          <RefreshCw size={13} className={cn(isGenerating && 'animate-spin')} />
+          <RefreshCw size={12} className={cn(isGenerating && 'animate-spin')} />
           {isGenerating ? 'Re-planning…' : 'Apply & Re-plan trip'}
         </button>
       </div>
@@ -75,13 +66,7 @@ export function PreferenceSliders({
 // ─── SliderRow ────────────────────────────────────────────────────────────────
 
 function SliderRow({
-  icon,
-  label,
-  valueLabel,
-  value,
-  onChange,
-  leftHint,
-  rightHint,
+  icon, label, valueLabel, value, onChange, leftHint, rightHint,
 }: {
   icon: React.ReactNode
   label: string
@@ -93,18 +78,13 @@ function SliderRow({
 }) {
   return (
     <div>
-      {/* Label row */}
       <div className="flex items-center justify-between mb-1.5">
         <div className="flex items-center gap-1.5">
           {icon}
-          <span className="text-[11px] font-medium text-gray-500">{label}</span>
+          <span className="text-[11px] font-medium text-[#555]">{label}</span>
         </div>
-        <span className="text-[11px] font-semibold text-indigo-600 tabular-nums">
-          {valueLabel}
-        </span>
+        <span className="text-[11px] font-semibold text-[#f0f0f0] tabular-nums">{valueLabel}</span>
       </div>
-
-      {/* Range input */}
       <input
         type="range"
         min={0}
@@ -113,13 +93,11 @@ function SliderRow({
         value={value}
         onChange={(e) => onChange(Number(e.target.value))}
         className="w-full cursor-pointer"
-        style={{ accentColor: '#4f46e5', height: '4px' }}
+        style={{ accentColor: '#ffffff', height: '3px' }}
       />
-
-      {/* End hints */}
       <div className="flex justify-between mt-0.5">
-        <span className="text-[10px] text-gray-300">{leftHint}</span>
-        <span className="text-[10px] text-gray-300">{rightHint}</span>
+        <span className="text-[10px] text-[#333]">{leftHint}</span>
+        <span className="text-[10px] text-[#333]">{rightHint}</span>
       </div>
     </div>
   )

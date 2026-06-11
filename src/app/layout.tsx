@@ -6,7 +6,7 @@ import { StoreHydration } from '@/components/StoreHydration'
 const geist = Geist({ subsets: ['latin'], variable: '--font-geist-sans' })
 
 export const metadata: Metadata = {
-  title: 'Wandr — AI Travel Planner',
+  title: 'Hodo — AI Travel Planner',
   description:
     'Chat with an AI agent to plan your perfect trip — day-by-day itinerary, live budget tracker, interactive map, and drag-and-drop editing.',
 }

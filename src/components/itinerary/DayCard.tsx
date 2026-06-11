@@ -23,83 +23,76 @@ export function DayCard({ day, index, tripCurrency, isDraggingAny }: DayCardProp
   const label = formatDayLabel(day.date, index)
   const activityIds = activities.map((a) => a.id)
 
-  // Count weather-sensitive activities for the rain warning banner
   const outdoorCount = activities.filter((a) => a.weatherSensitive).length
   const showRainWarning = !!weather && isBadWeather(weather.condition) && outdoorCount > 0
 
-  // Make the day card itself a drop target so items can be dragged into empty days
   const { setNodeRef, isOver } = useDroppable({ id: day.id })
 
   return (
     <div
       className={cn(
-        'bg-white rounded-2xl border shadow-sm overflow-hidden transition-colors duration-150',
+        'bg-[#111111] rounded-xl border overflow-hidden transition-colors duration-150',
         isOver && isDraggingAny
-          ? 'border-indigo-300 shadow-md shadow-indigo-100'
-          : 'border-gray-100'
+          ? 'border-[#444]'
+          : 'border-[#1f1f1f]'
       )}
     >
-      {/* ── Day header ───────────────────────────────────────────────────────── */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 bg-gray-50/60">
-        <div className="flex items-center gap-2.5">
-          <div className="w-7 h-7 rounded-full bg-indigo-600 flex items-center justify-center shrink-0">
-            <span className="text-[11px] font-bold text-white">{index + 1}</span>
+      {/* ── Day header ─────────────────────────────────────────────────────── */}
+      <div className="flex items-center justify-between px-4 py-3 border-b border-[#1f1f1f]">
+        <div className="flex items-center gap-3">
+          {/* Day number pill */}
+          <div className="w-7 h-7 rounded-lg bg-[#1f1f1f] flex items-center justify-center shrink-0">
+            <span className="text-[11px] font-bold text-[#888]">{index + 1}</span>
           </div>
           <div>
-            <p className="text-sm font-semibold text-gray-800 leading-tight">{label}</p>
+            <p className="text-[13px] font-semibold text-[#f0f0f0] leading-tight">{label}</p>
             {activities.length > 0 && (
-              <p className="text-[11px] text-gray-400 leading-tight">
+              <p className="text-[11px] text-[#444] leading-tight">
                 {activities.length} {activities.length === 1 ? 'activity' : 'activities'}
               </p>
             )}
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
-          {/* ── Weather chip ─────────────────────────────────────────────────── */}
+        <div className="flex items-center gap-2.5">
+          {/* Weather chip */}
           {weather ? (
             <div
-              className="flex items-center gap-1 text-xs text-gray-600"
+              className="flex items-center gap-1 text-[12px] text-[#888]"
               title={weather.description}
             >
-              <span className="text-base leading-none">{getWeatherEmoji(weather.condition)}</span>
-              <span className="font-medium">{weather.tempHighC}°</span>
-              <span className="text-gray-300">/</span>
-              <span className="text-gray-400">{weather.tempLowC}°</span>
+              <span className="text-sm leading-none">{getWeatherEmoji(weather.condition)}</span>
+              <span className="font-medium text-[#aaa]">{weather.tempHighC}°</span>
+              <span className="text-[#333]">/</span>
+              <span className="text-[#555]">{weather.tempLowC}°</span>
               {weather.precipitationProbability >= 40 && (
-                <span
-                  className={cn(
-                    'text-[10px] font-semibold px-1.5 py-0.5 rounded-full ml-0.5',
-                    weather.precipitationProbability >= 70
-                      ? 'bg-blue-100 text-blue-600'
-                      : 'bg-slate-100 text-slate-500'
-                  )}
-                >
+                <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-[#1a1a1a] text-[#666] ml-0.5">
                   {weather.precipitationProbability}%
                 </span>
               )}
             </div>
           ) : null}
 
+          {/* Day spend */}
           {dayTotal > 0 && (
-            <span className="flex items-center gap-0.5 text-xs font-semibold text-gray-600 bg-white border border-gray-200 rounded-lg px-2 py-1">
-              <DollarSign size={11} />
+            <span className="flex items-center gap-0.5 text-[11px] font-medium text-[#555] bg-[#161616] border border-[#2a2a2a] rounded-lg px-2 py-1">
+              <DollarSign size={10} />
               {formatCurrency(dayTotal, tripCurrency).replace(/[^\d,.]/g, '')}
             </span>
           )}
         </div>
       </div>
 
-      {/* ── Activities ───────────────────────────────────────────────────────── */}
+      {/* ── Activities ─────────────────────────────────────────────────────── */}
       <div ref={setNodeRef}>
         {activities.length === 0 ? (
           <div
             className={cn(
               'px-4 py-8 text-center transition-colors',
-              isOver && isDraggingAny ? 'bg-indigo-50' : ''
+              isOver && isDraggingAny ? 'bg-[#161616]' : ''
             )}
           >
-            <p className="text-sm text-gray-400">
+            <p className="text-[12px] text-[#333]">
               {isOver && isDraggingAny
                 ? 'Drop here to add to this day'
                 : 'No activities planned for this day yet.'}
@@ -107,7 +100,7 @@ export function DayCard({ day, index, tripCurrency, isDraggingAny }: DayCardProp
           </div>
         ) : (
           <SortableContext items={activityIds} strategy={verticalListSortingStrategy}>
-            <div className="divide-y divide-gray-50">
+            <div className="divide-y divide-[#161616]">
               {activities.map((activity, actIdx) => (
                 <SortableActivityCard
                   key={activity.id}
@@ -123,13 +116,13 @@ export function DayCard({ day, index, tripCurrency, isDraggingAny }: DayCardProp
         )}
       </div>
 
-      {/* ── Rain warning banner ──────────────────────────────────────────────── */}
+      {/* ── Rain warning ────────────────────────────────────────────────────── */}
       {showRainWarning && (
-        <div className="px-4 py-2.5 border-t border-amber-100 bg-amber-50/70 flex items-center justify-between gap-3">
-          <p className="text-xs text-amber-700 leading-tight min-w-0">
-            <span className="font-semibold">{weather!.description}</span> forecast ·{' '}
+        <div className="px-4 py-2.5 border-t border-[#1f1f1f] bg-[#0f0e0a] flex items-center justify-between gap-3">
+          <p className="text-[11px] text-[#888] leading-tight min-w-0">
+            <span className="font-medium text-[#aaa]">{weather!.description}</span> forecast ·{' '}
             {outdoorCount} weather-sensitive{' '}
-            {outdoorCount === 1 ? 'activity' : 'activities'} may be affected
+            {outdoorCount === 1 ? 'activity' : 'activities'}
           </p>
           <button
             onClick={() => {
@@ -142,17 +135,17 @@ export function DayCard({ day, index, tripCurrency, isDraggingAny }: DayCardProp
                 new CustomEvent('wandr:chat-prompt', { detail: { message: msg } })
               )
             }}
-            className="shrink-0 text-[11px] font-semibold text-amber-600 hover:text-amber-700 transition-colors whitespace-nowrap"
+            className="shrink-0 text-[11px] font-medium text-[#888] hover:text-[#f0f0f0] transition-colors whitespace-nowrap"
           >
             Get alternatives →
           </button>
         </div>
       )}
 
-      {/* ── Day notes ────────────────────────────────────────────────────────── */}
+      {/* ── Day notes ──────────────────────────────────────────────────────── */}
       {dayNotes && (
-        <div className="px-4 py-2.5 border-t border-gray-100 bg-amber-50/40">
-          <p className="text-xs text-amber-700 italic">{dayNotes}</p>
+        <div className="px-4 py-2.5 border-t border-[#1f1f1f]">
+          <p className="text-[11px] text-[#666] italic">{dayNotes}</p>
         </div>
       )}
     </div>

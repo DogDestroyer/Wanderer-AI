@@ -10,10 +10,10 @@ import type { TripPlan } from '@/lib/types'
 
 function MapSkeleton() {
   return (
-    <div className="h-full w-full flex items-center justify-center bg-gray-50">
+    <div className="h-full w-full flex items-center justify-center bg-[#0a0a0a]">
       <div className="text-center">
-        <div className="w-8 h-8 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
-        <p className="text-sm text-gray-400">Loading map…</p>
+        <div className="w-6 h-6 border border-[#333] border-t-white rounded-full animate-spin mx-auto mb-3" />
+        <p className="text-[12px] text-[#444]">Loading map…</p>
       </div>
     </div>
   )

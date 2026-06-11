@@ -18,8 +18,6 @@ interface ToastItem extends ToastPayload {
 }
 
 // ─── ToastContainer ───────────────────────────────────────────────────────────
-// Mount this once in AppShell. Toasts are triggered from anywhere via:
-//   document.dispatchEvent(new CustomEvent('wandr:toast', { detail: { message, type } }))
 
 export function ToastContainer() {
   const [toasts, setToasts] = useState<ToastItem[]>([])
@@ -52,23 +50,19 @@ export function ToastContainer() {
             transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
             className={cn(
               'pointer-events-auto flex items-center gap-2.5 px-4 py-2.5',
-              'rounded-xl shadow-lg shadow-black/[0.08] border',
-              'text-sm font-medium whitespace-nowrap',
-              toast.type === 'success'
-                ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
-                : toast.type === 'warning'
-                ? 'bg-amber-50 text-amber-800 border-amber-200'
-                : 'bg-white text-gray-800 border-gray-100'
+              'rounded-xl border shadow-2xl shadow-black/60',
+              'text-[13px] font-medium whitespace-nowrap',
+              'bg-[#111111] border-[#2a2a2a] text-[#f0f0f0]'
             )}
           >
             {toast.type === 'success' && (
-              <CheckCircle size={14} className="text-emerald-500 shrink-0" />
+              <CheckCircle size={13} className="text-[#22c55e] shrink-0" />
             )}
             {toast.type === 'warning' && (
-              <AlertTriangle size={14} className="text-amber-500 shrink-0" />
+              <AlertTriangle size={13} className="text-[#f59e0b] shrink-0" />
             )}
             {(!toast.type || toast.type === 'info') && (
-              <Info size={14} className="text-indigo-500 shrink-0" />
+              <Info size={13} className="text-[#888] shrink-0" />
             )}
             {toast.message}
           </motion.div>

@@ -3,6 +3,7 @@
 import { useState, FormEvent } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Lock, Eye, EyeOff } from 'lucide-react'
+import { cn } from '@/lib/utils'
 
 export function LoginForm() {
   const router = useRouter()
@@ -18,14 +19,12 @@ export function LoginForm() {
     e.preventDefault()
     setError('')
     setLoading(true)
-
     try {
       const res = await fetch('/api/auth', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ password }),
       })
-
       if (res.ok) {
         router.replace(from)
       } else {
@@ -42,11 +41,11 @@ export function LoginForm() {
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
       <div>
-        <label className="block text-xs font-medium text-slate-400 mb-1.5">
-          Demo passcode
+        <label className="block text-[11px] font-medium text-[#555] mb-1.5">
+          Passcode
         </label>
         <div className="relative">
-          <Lock size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
+          <Lock size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#444]" />
           <input
             type={showPassword ? 'text' : 'password'}
             value={password}
@@ -54,20 +53,25 @@ export function LoginForm() {
             placeholder="Enter passcode"
             autoFocus
             required
-            className="w-full bg-slate-800 border border-slate-700 text-white placeholder-slate-500 rounded-lg px-3 py-2.5 pl-9 pr-9 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all"
+            className={cn(
+              'w-full bg-[#161616] border border-[#2a2a2a] text-[#f0f0f0]',
+              'placeholder:text-[#333] rounded-lg px-3 py-2.5 pl-9 pr-9 text-[13px]',
+              'focus:outline-none focus:border-[#444]',
+              'transition-colors'
+            )}
           />
           <button
             type="button"
             onClick={() => setShowPassword((s) => !s)}
-            className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 transition-colors"
+            className="absolute right-3 top-1/2 -translate-y-1/2 text-[#444] hover:text-[#888] transition-colors"
           >
-            {showPassword ? <EyeOff size={14} /> : <Eye size={14} />}
+            {showPassword ? <EyeOff size={13} /> : <Eye size={13} />}
           </button>
         </div>
       </div>
 
       {error && (
-        <p className="text-xs text-rose-400 bg-rose-950/50 border border-rose-900 px-3 py-2 rounded-lg">
+        <p className="text-[12px] text-[#ef4444] bg-[#1a0d0d] border border-[#3a1515] px-3 py-2 rounded-lg">
           {error}
         </p>
       )}
@@ -75,9 +79,13 @@ export function LoginForm() {
       <button
         type="submit"
         disabled={loading || !password}
-        className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-700 disabled:text-slate-500 text-white text-sm font-semibold rounded-lg transition-colors"
+        className={cn(
+          'w-full py-2.5 text-[13px] font-semibold rounded-lg transition-colors',
+          'bg-white text-black hover:bg-[#e8e8e8] active:bg-[#d0d0d0]',
+          'disabled:bg-[#1a1a1a] disabled:text-[#333] disabled:cursor-not-allowed'
+        )}
       >
-        {loading ? 'Checking…' : 'Access Wandr'}
+        {loading ? 'Checking…' : 'Enter Hodo'}
       </button>
     </form>
   )

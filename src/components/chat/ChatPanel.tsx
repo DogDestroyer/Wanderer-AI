@@ -10,8 +10,6 @@ import { AgentSettingsPanel } from './AgentSettingsPanel'
 import { showToast } from '@/components/ui/Toast'
 
 // ─── ChatPanel ─────────────────────────────────────────────────────────────────
-// Persistent chat interface. When no trip exists, messages are stored under the
-// temporary '__new__' key. On trip creation the store automatically migrates them.
 
 export function ChatPanel() {
   const [input, setInput] = useState('')
@@ -25,7 +23,6 @@ export function ChatPanel() {
   const trips = useStore((s) => s.trips)
   const chatHistory = useStore((s) => s.chatHistory)
   const isGenerating = useStore((s) => s.isGenerating)
-
   const addChatMessage = useStore((s) => s.addChatMessage)
   const updateLastAssistantMessage = useStore((s) => s.updateLastAssistantMessage)
   const setIsGenerating = useStore((s) => s.setIsGenerating)
@@ -33,10 +30,7 @@ export function ChatPanel() {
   const updateTrip = useStore((s) => s.updateTrip)
   const agentSettings = useStore((s) => s.agentSettings)
 
-  // Active trip object (null when no trip yet)
   const activeTrip = activeTripId ? trips[activeTripId] : null
-
-  // Chat messages for the current context (__new__ = before any trip exists)
   const chatKey = activeTripId ?? '__new__'
   const messages: ChatMessage[] = chatHistory[chatKey] ?? []
 
@@ -44,6 +38,11 @@ export function ChatPanel() {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
+
+  // Focus textarea when panel mounts (e.g. opened via Chat button)
+  useEffect(() => {
+    requestAnimationFrame(() => { textareaRef.current?.focus() })
+  }, [])
 
   // Auto-resize textarea
   function handleInputChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
@@ -53,23 +52,19 @@ export function ChatPanel() {
     el.style.height = `${Math.min(el.scrollHeight, 120)}px`
   }
 
-  // Focus the textarea when the WelcomeScreen "Start planning" button is clicked
+  // Focus when WelcomeScreen CTA fires
   useEffect(() => {
-    function handler() {
-      textareaRef.current?.focus()
-    }
+    function handler() { textareaRef.current?.focus() }
     document.addEventListener('wandr:focus-chat', handler)
     return () => document.removeEventListener('wandr:focus-chat', handler)
   }, [])
 
-  // Pre-fill the textarea from DayCard rain-warning "Get alternatives →" button
+  // Pre-fill textarea from DayCard rain-warning "Get alternatives →"
   useEffect(() => {
     function handler(e: Event) {
       const msg = (e as CustomEvent<{ message: string }>).detail?.message
       if (!msg) return
       setInput(msg)
-      // Resize the textarea to fit the pre-filled text on the next frame
-      // (after React renders the new `input` value into the DOM)
       requestAnimationFrame(() => {
         const el = textareaRef.current
         if (!el) return
@@ -82,8 +77,6 @@ export function ChatPanel() {
     return () => document.removeEventListener('wandr:chat-prompt', handler)
   }, [])
 
-  // handleSendRef lets the wandr:send-message listener always call the latest
-  // version of handleSend without stale closure issues.
   const handleSendRef = useRef<((e?: FormEvent, override?: string) => Promise<void>) | null>(null)
 
   const handleSend = useCallback(async (e?: FormEvent, override?: string) => {
@@ -91,17 +84,13 @@ export function ChatPanel() {
     const text = (override ?? input).trim()
     if (!text || isGenerating) return
 
-    // The chat key is captured NOW — it may be '__new__' or a real trip ID.
-    // After createTrip() the store migrates '__new__' → real ID automatically.
     const chatId = activeTripId ?? '__new__'
-
     const userMessage: ChatMessage = {
       id: crypto.randomUUID(),
       role: 'user',
       content: text,
       timestamp: new Date().toISOString(),
     }
-
     addChatMessage(chatId, userMessage)
     if (!override) {
       setInput('')
@@ -109,7 +98,6 @@ export function ChatPanel() {
     }
     setIsGenerating(true)
 
-    // Placeholder assistant message — updated as stream arrives
     const assistantMessage: ChatMessage = {
       id: crypto.randomUUID(),
       role: 'assistant',
@@ -119,7 +107,6 @@ export function ChatPanel() {
     }
     addChatMessage(chatId, assistantMessage)
 
-    // Build the message history to send (all previous + the new user message)
     const historyToSend = [...messages, userMessage].map((m) => ({
       role: m.role as 'user' | 'assistant',
       content: m.content,
@@ -129,27 +116,20 @@ export function ChatPanel() {
       const res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          messages: historyToSend,
-          trip: activeTrip ?? null,
-          agentSettings,
-        }),
+        body: JSON.stringify({ messages: historyToSend, trip: activeTrip ?? null, agentSettings }),
       })
 
-      if (!res.ok || !res.body) {
-        throw new Error(`Server error: ${res.status}`)
-      }
+      if (!res.ok || !res.body) throw new Error(`Server error: ${res.status}`)
 
       const reader = res.body.getReader()
       const decoder = new TextDecoder()
       let buffer = ''
-      let streamedText = '' // local accumulator — avoids stale-closure reads
+      let streamedText = ''
 
       // eslint-disable-next-line no-constant-condition
       while (true) {
         const { done, value } = await reader.read()
         if (done) break
-
         buffer += decoder.decode(value, { stream: true })
         const lines = buffer.split('\n')
         buffer = lines.pop() ?? ''
@@ -170,45 +150,30 @@ export function ChatPanel() {
 
           if (payload.type === 'done' && payload.response) {
             const response = payload.response
-            // Finalize the streamed message and clear the isStreaming flag
             updateLastAssistantMessage(chatId, response.message, false)
-
-            // Apply trip changes
             if (response.action === 'create' && response.trip) {
-              // createTrip migrates chatHistory['__new__'] → chatHistory[trip.id]
               createTrip(response.trip)
             } else if (response.action === 'patch' && response.patch && activeTripId) {
-              // Strip AgentTripPatch-only fields (tripId, dayIds) before passing to updateTrip
               const { tripId: _id, dayIds: _dayIds, ...tripFields } = response.patch
               updateTrip(activeTripId, tripFields as Partial<import('@/lib/types').TripPlan>)
             }
           }
 
           if (payload.type === 'error') {
-            updateLastAssistantMessage(
-              chatId,
-              "Sorry, something went wrong — please try again.",
-              false
-            )
+            updateLastAssistantMessage(chatId, "Sorry, something went wrong — please try again.", false)
           }
         }
       }
     } catch {
-      updateLastAssistantMessage(
-        chatId,
-        "Sorry, I couldn't connect to the AI. Please try again.",
-        false
-      )
+      updateLastAssistantMessage(chatId, "Sorry, I couldn't connect to the AI. Please try again.", false)
     } finally {
       setIsGenerating(false)
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [input, isGenerating, activeTripId, messages])
 
-  // Keep the ref fresh so event-listener callbacks always call the latest version
   useEffect(() => { handleSendRef.current = handleSend }, [handleSend])
 
-  // Listen for auto-send requests (e.g. from the re-plan sliders or rain banners)
   useEffect(() => {
     function handler(e: Event) {
       const msg = (e as CustomEvent<{ message: string }>).detail?.message
@@ -219,8 +184,6 @@ export function ChatPanel() {
   }, [])
 
   // ── Prompt enhancer ──────────────────────────────────────────────────────────
-  // Takes whatever is in the textarea, calls /api/enhance, and replaces it with
-  // a well-structured trip planning prompt the user can review before sending.
   async function handleEnhance() {
     const text = input.trim()
     if (!text || isEnhancing || isGenerating) return
@@ -231,17 +194,14 @@ export function ChatPanel() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text }),
       })
-
       if (!res.ok) {
         const err = await res.text().catch(() => `Status ${res.status}`)
         console.error('[enhance] API error:', res.status, err)
         showToast({ message: 'Could not enhance prompt — try again', type: 'warning' })
         return
       }
-
       const data = await res.json()
       const enhanced: string | undefined = data.enhanced
-
       if (enhanced && enhanced !== text) {
         setInput(enhanced)
         requestAnimationFrame(() => {
@@ -271,21 +231,22 @@ export function ChatPanel() {
   }
 
   return (
-    <div className="flex flex-col h-full bg-white">
-      {/* Header */}
-      <div className="flex items-center gap-2.5 px-4 py-3 border-b border-gray-100 flex-shrink-0">
-        <div className="w-7 h-7 rounded-lg bg-indigo-600 flex items-center justify-center shadow-sm shadow-indigo-200">
-          <Sparkles size={13} className="text-white" />
+    <div className="flex flex-col h-full bg-[#0a0a0a]">
+
+      {/* ── Header ───────────────────────────────────────────────────────────── */}
+      <div className="flex items-center gap-2.5 px-4 py-3 border-b border-[#1f1f1f] flex-shrink-0">
+        <div className="w-7 h-7 rounded-lg bg-[#1a1a1a] border border-[#2a2a2a] flex items-center justify-center">
+          <Sparkles size={13} className="text-[#888]" />
         </div>
         <div>
-          <p className="text-sm font-semibold text-gray-900 leading-tight">Wandr AI</p>
-          <p className="text-[11px] text-gray-400 leading-tight">Travel planning assistant</p>
+          <p className="text-[13px] font-semibold text-[#f0f0f0] leading-tight">Hodo AI</p>
+          <p className="text-[10px] text-[#444] leading-tight">Travel planning assistant</p>
         </div>
         <div className="ml-auto flex items-center gap-2">
           {isGenerating && (
-            <div className="flex items-center gap-1.5 text-indigo-500">
-              <Loader2 size={12} className="animate-spin" />
-              <span className="text-[11px]">Thinking…</span>
+            <div className="flex items-center gap-1.5 text-[#555]">
+              <Loader2 size={11} className="animate-spin" />
+              <span className="text-[10px]">Thinking…</span>
             </div>
           )}
           <button
@@ -294,16 +255,16 @@ export function ChatPanel() {
             className={cn(
               'w-7 h-7 rounded-lg flex items-center justify-center transition-colors',
               showSettings
-                ? 'bg-indigo-100 text-indigo-600'
-                : 'text-gray-400 hover:text-gray-600 hover:bg-gray-100'
+                ? 'bg-white text-black'
+                : 'text-[#444] hover:text-[#f0f0f0] hover:bg-[#1a1a1a]'
             )}
           >
-            <Settings2 size={14} />
+            <Settings2 size={13} />
           </button>
         </div>
       </div>
 
-      {/* Collapsible agent settings panel */}
+      {/* ── Agent settings panel (collapsible) ─────────────────────────────── */}
       <AnimatePresence initial={false}>
         {showSettings && (
           <motion.div
@@ -319,26 +280,23 @@ export function ChatPanel() {
         )}
       </AnimatePresence>
 
-      {/* Message list */}
+      {/* ── Message list ─────────────────────────────────────────────────────── */}
       <div className="flex-1 overflow-y-auto p-4 space-y-3 min-h-0">
         {messages.length === 0 && (
           <div className="flex flex-col items-center justify-center h-full text-center px-4 py-8">
-            <div className="w-11 h-11 rounded-2xl bg-indigo-50 flex items-center justify-center mb-3">
-              <Sparkles size={20} className="text-indigo-500" />
+            <div className="w-10 h-10 rounded-xl bg-[#111111] border border-[#2a2a2a] flex items-center justify-center mb-3">
+              <Sparkles size={18} className="text-[#555]" />
             </div>
-            <p className="text-sm font-semibold text-gray-700 mb-1">Plan your trip with AI</p>
-            <p className="text-xs text-gray-400 leading-relaxed max-w-[200px]">
+            <p className="text-[13px] font-semibold text-[#f0f0f0] mb-1">Plan your trip with AI</p>
+            <p className="text-[11px] text-[#444] leading-relaxed max-w-[200px]">
               Tell me where you want to go and I&apos;ll build a full itinerary in seconds.
             </p>
-            <div className="mt-5 grid grid-cols-1 gap-2 w-full">
+            <div className="mt-5 grid grid-cols-1 gap-1.5 w-full">
               {STARTER_PROMPTS.map((prompt) => (
                 <button
                   key={prompt}
-                  onClick={() => {
-                    setInput(prompt)
-                    textareaRef.current?.focus()
-                  }}
-                  className="text-left text-xs text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-lg px-3 py-2 transition-colors leading-relaxed"
+                  onClick={() => { setInput(prompt); textareaRef.current?.focus() }}
+                  className="text-left text-[11px] text-[#666] bg-[#111111] border border-[#1f1f1f] hover:border-[#333] hover:text-[#f0f0f0] rounded-lg px-3 py-2 transition-all leading-relaxed"
                 >
                   {prompt}
                 </button>
@@ -356,7 +314,7 @@ export function ChatPanel() {
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Prompt tips — slide in when textarea is focused and input is short */}
+      {/* ── Prompt tips ──────────────────────────────────────────────────────── */}
       <AnimatePresence>
         {isFocused && !isGenerating && (
           <motion.div
@@ -364,18 +322,18 @@ export function ChatPanel() {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 6 }}
             transition={{ duration: 0.18, ease: 'easeOut' }}
-            className="mx-3 mb-1 rounded-xl border border-violet-100 bg-violet-50 px-3 py-2.5"
+            className="mx-3 mb-1 rounded-xl border border-[#1f1f1f] bg-[#0d0d0d] px-3 py-2.5"
           >
-            <p className="text-[10px] font-semibold text-violet-500 uppercase tracking-wide mb-2">
+            <p className="text-[10px] font-semibold text-[#444] uppercase tracking-wide mb-2">
               ✦ For best results, mention…
             </p>
             <div className="grid grid-cols-2 gap-x-3 gap-y-1.5">
               {PROMPT_TIPS.map((tip) => (
                 <div key={tip.label} className="flex items-start gap-1.5">
-                  <span className="text-[13px] leading-none mt-px">{tip.emoji}</span>
+                  <span className="text-[12px] leading-none mt-px">{tip.emoji}</span>
                   <div>
-                    <span className="text-[11px] font-semibold text-violet-700">{tip.label} </span>
-                    <span className="text-[11px] text-violet-400">{tip.example}</span>
+                    <span className="text-[11px] font-semibold text-[#888]">{tip.label} </span>
+                    <span className="text-[11px] text-[#444]">{tip.example}</span>
                   </div>
                 </div>
               ))}
@@ -384,8 +342,8 @@ export function ChatPanel() {
         )}
       </AnimatePresence>
 
-      {/* Input */}
-      <div className="px-3 pb-3 pt-2 border-t border-gray-100 flex-shrink-0">
+      {/* ── Input area ───────────────────────────────────────────────────────── */}
+      <div className="px-3 pb-3 pt-2 border-t border-[#1f1f1f] flex-shrink-0">
         <form onSubmit={handleSend} className="flex items-end gap-2">
           <textarea
             ref={textareaRef}
@@ -398,59 +356,60 @@ export function ChatPanel() {
             onFocus={() => setIsFocused(true)}
             onBlur={() => setIsFocused(false)}
             className={cn(
-              'flex-1 resize-none rounded-xl border border-gray-200 px-3 py-2.5 text-sm',
-              'text-gray-800 placeholder:text-gray-400 leading-relaxed',
-              'focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent',
-              'disabled:opacity-50 transition-all overflow-hidden',
+              'flex-1 resize-none rounded-xl border border-[#2a2a2a] bg-[#111111] px-3 py-2.5 text-[13px]',
+              'text-[#f0f0f0] placeholder:text-[#444] leading-relaxed',
+              'focus:outline-none focus:border-[#444]',
+              'disabled:opacity-40 transition-all overflow-hidden',
             )}
             style={{ minHeight: '40px', maxHeight: '120px' }}
           />
-          {/* Enhance button — polishes rough ideas into a proper prompt */}
+
+          {/* Enhance button */}
           <button
             type="button"
             onClick={handleEnhance}
             disabled={!input.trim() || isGenerating || isEnhancing}
             title="Enhance prompt with AI"
             className={cn(
-              'flex-shrink-0 w-10 h-10 rounded-xl flex items-center justify-center',
-              'bg-violet-50 hover:bg-violet-100 active:bg-violet-200',
-              'text-violet-500 disabled:text-gray-300 disabled:bg-gray-100',
-              'transition-colors',
+              'flex-shrink-0 w-10 h-10 rounded-xl flex items-center justify-center border transition-colors',
+              'border-[#2a2a2a] bg-[#111111] text-[#555]',
+              'hover:border-[#444] hover:text-[#f0f0f0]',
+              'disabled:opacity-30 disabled:cursor-not-allowed',
             )}
           >
             {isEnhancing ? (
-              <Loader2 size={14} className="animate-spin text-violet-400" />
+              <Loader2 size={13} className="animate-spin" />
             ) : (
-              <Wand2 size={14} />
+              <Wand2 size={13} />
             )}
           </button>
 
+          {/* Send button */}
           <button
             type="submit"
             disabled={!input.trim() || isGenerating}
             className={cn(
-              'flex-shrink-0 w-10 h-10 rounded-xl flex items-center justify-center',
-              'bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700',
-              'disabled:bg-gray-100 disabled:text-gray-300',
-              'text-white transition-colors',
+              'flex-shrink-0 w-10 h-10 rounded-xl flex items-center justify-center transition-colors',
+              'bg-white text-black hover:bg-[#e8e8e8] active:bg-[#d0d0d0]',
+              'disabled:bg-[#1a1a1a] disabled:text-[#444]',
             )}
           >
             {isGenerating ? (
-              <Loader2 size={15} className="animate-spin" />
+              <Loader2 size={14} className="animate-spin text-[#555]" />
             ) : (
-              <Send size={14} />
+              <Send size={13} />
             )}
           </button>
         </form>
-        <p className="text-[10px] text-gray-400 mt-1.5 text-center">
-          Enter to send · Shift+Enter for new line · <span className="text-violet-400">✦ wand to enhance</span>
+        <p className="text-[10px] text-[#333] mt-1.5 text-center">
+          Enter to send · Shift+Enter for new line · <span className="text-[#444]">✦ wand to enhance</span>
         </p>
       </div>
     </div>
   )
 }
 
-// ─── MessageBubble ─────────────────────────────────────────────────────────────
+// ─── MessageBubble ────────────────────────────────────────────────────────────
 
 function MessageBubble({ message }: { message: ChatMessage }) {
   const isUser = message.role === 'user'
@@ -458,22 +417,22 @@ function MessageBubble({ message }: { message: ChatMessage }) {
   return (
     <motion.div
       className={cn('flex gap-2', isUser ? 'justify-end' : 'justify-start')}
-      initial={{ opacity: 0, y: 10, scale: 0.97 }}
+      initial={{ opacity: 0, y: 8, scale: 0.97 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
-      transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+      transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
     >
       {!isUser && (
-        <div className="w-6 h-6 rounded-full bg-indigo-600 flex items-center justify-center shrink-0 mt-0.5">
-          <Sparkles size={10} className="text-white" />
+        <div className="w-6 h-6 rounded-full bg-[#1a1a1a] border border-[#2a2a2a] flex items-center justify-center shrink-0 mt-0.5">
+          <Sparkles size={9} className="text-[#666]" />
         </div>
       )}
 
       <div
         className={cn(
-          'max-w-[85%] rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed',
+          'max-w-[85%] rounded-2xl px-3.5 py-2.5 text-[13px] leading-relaxed',
           isUser
-            ? 'bg-indigo-600 text-white rounded-tr-sm'
-            : 'bg-gray-100 text-gray-800 rounded-tl-sm',
+            ? 'bg-white text-black rounded-tr-sm'
+            : 'bg-[#111111] border border-[#1f1f1f] text-[#e0e0e0] rounded-tl-sm',
         )}
       >
         {message.content ? (
@@ -484,28 +443,27 @@ function MessageBubble({ message }: { message: ChatMessage }) {
       </div>
 
       {isUser && (
-        <div className="w-6 h-6 rounded-full bg-gray-200 flex items-center justify-center shrink-0 mt-0.5">
-          <User size={11} className="text-gray-500" />
+        <div className="w-6 h-6 rounded-full bg-[#1a1a1a] border border-[#2a2a2a] flex items-center justify-center shrink-0 mt-0.5">
+          <User size={10} className="text-[#555]" />
         </div>
       )}
     </motion.div>
   )
 }
 
-// ─── TypingIndicator ───────────────────────────────────────────────────────────
+// ─── TypingIndicator ─────────────────────────────────────────────────────────
 
 function TypingIndicator() {
   return (
     <span className="flex gap-1 items-center py-0.5">
-      <span className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce [animation-delay:0ms]" />
-      <span className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce [animation-delay:150ms]" />
-      <span className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce [animation-delay:300ms]" />
+      <span className="w-1.5 h-1.5 bg-[#444] rounded-full animate-bounce [animation-delay:0ms]" />
+      <span className="w-1.5 h-1.5 bg-[#444] rounded-full animate-bounce [animation-delay:150ms]" />
+      <span className="w-1.5 h-1.5 bg-[#444] rounded-full animate-bounce [animation-delay:300ms]" />
     </span>
   )
 }
 
-// ─── Prompt tips ──────────────────────────────────────────────────────────────
-// Shown when the textarea is focused and the input is short, to guide the user.
+// ─── Prompt tips ─────────────────────────────────────────────────────────────
 
 const PROMPT_TIPS = [
   { emoji: '📍', label: 'Where',     example: '"Tokyo" or "3 cities"' },
@@ -516,7 +474,7 @@ const PROMPT_TIPS = [
   { emoji: '👥', label: 'Group',     example: '"solo" / "family of 4"' },
 ]
 
-// ─── Starter prompts ───────────────────────────────────────────────────────────
+// ─── Starter prompts ─────────────────────────────────────────────────────────
 
 const STARTER_PROMPTS = [
   '5 days in Tokyo — art, food, and temples 🇯🇵',

@@ -15,7 +15,7 @@ import {
   type DragEndEvent,
 } from '@dnd-kit/core'
 import { arrayMove } from '@dnd-kit/sortable'
-import { MapPin, Calendar, DollarSign, Gauge, Star, Plane, Map, SlidersHorizontal } from 'lucide-react'
+import { MapPin, Calendar, DollarSign, Gauge, Star, SlidersHorizontal } from 'lucide-react'
 import type { TripPlan, Day, Activity } from '@/lib/types'
 import { useStore } from '@/lib/store'
 import {
@@ -46,32 +46,21 @@ export function ItineraryView({ trip }: ItineraryViewProps) {
   const updateTrip = useStore((s) => s.updateTrip)
   const isGenerating = useStore((s) => s.isGenerating)
 
-  // ── Tab state ────────────────────────────────────────────────────────────────
   const [activeTab, setActiveTab] = useState<'itinerary' | 'budget' | 'map'>('itinerary')
-
-  // ── Sliders toggle ────────────────────────────────────────────────────────────
   const [showSliders, setShowSliders] = useState(false)
-
-  // ── Local day state for live drag preview ────────────────────────────────────
-  // We maintain a copy of days so cross-day moves preview before committing.
   const [localDays, setLocalDays] = useState<Day[]>(trip.days)
   const [activeDragId, setActiveDragId] = useState<string | null>(null)
 
-  // Keep local days in sync with the store whenever we're NOT dragging
   useEffect(() => {
     if (!activeDragId) setLocalDays(trip.days)
   }, [trip.days, activeDragId])
 
-  // ── Helpers ──────────────────────────────────────────────────────────────────
-
-  /** Find which day (in local state) contains the given activity ID. */
   const findDayId = useCallback(
     (activityId: string): string | undefined =>
       localDays.find((d) => d.activities.some((a) => a.id === activityId))?.id,
     [localDays]
   )
 
-  /** Find the dragged activity object from local state. */
   const findActivity = useCallback(
     (activityId: string): Activity | undefined => {
       for (const day of localDays) {
@@ -83,14 +72,10 @@ export function ItineraryView({ trip }: ItineraryViewProps) {
     [localDays]
   )
 
-  // ── Sensors ──────────────────────────────────────────────────────────────────
-  // Require 8px movement before drag starts — prevents accidental drags on click.
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
     useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 5 } })
   )
-
-  // ── Drag handlers ─────────────────────────────────────────────────────────────
 
   function handleDragStart({ active }: DragStartEvent) {
     setActiveDragId(active.id as string)
@@ -98,37 +83,27 @@ export function ItineraryView({ trip }: ItineraryViewProps) {
 
   function handleDragOver({ active, over }: DragOverEvent) {
     if (!over) return
-
     const activeId = active.id as string
     const overId = over.id as string
-
     const activeDayId = findDayId(activeId)
-
-    // `over` might be an activity ID or a day ID (droppable day zone)
     const overDayId =
       findDayId(overId) ??
       (localDays.find((d) => d.id === overId)?.id)
-
     if (!activeDayId || !overDayId || activeDayId === overDayId) return
 
-    // ── Cross-day move ─────────────────────────────────────────────────────────
     setLocalDays((prev) => {
       const sourceDay = prev.find((d) => d.id === activeDayId)
       const destDay = prev.find((d) => d.id === overDayId)
       if (!sourceDay || !destDay) return prev
-
       const activity = sourceDay.activities.find((a) => a.id === activeId)
       if (!activity) return prev
-
       const overIsActivity = destDay.activities.some((a) => a.id === overId)
       const insertIndex = overIsActivity
         ? destDay.activities.findIndex((a) => a.id === overId)
         : destDay.activities.length
-
       return prev.map((day) => {
-        if (day.id === activeDayId) {
+        if (day.id === activeDayId)
           return { ...day, activities: day.activities.filter((a) => a.id !== activeId) }
-        }
         if (day.id === overDayId) {
           const updated = [...day.activities]
           updated.splice(insertIndex, 0, activity)
@@ -142,91 +117,58 @@ export function ItineraryView({ trip }: ItineraryViewProps) {
   function handleDragEnd({ active, over }: DragEndEvent) {
     const activeId = active.id as string
     setActiveDragId(null)
-
-    if (!over) {
-      // Drag cancelled — restore store state
-      setLocalDays(trip.days)
-      return
-    }
-
+    if (!over) { setLocalDays(trip.days); return }
     const overId = over.id as string
-
-    // Where the item started (original store data)
     const originalDayId = trip.days.find((d) =>
       d.activities.some((a) => a.id === activeId)
     )?.id
-
-    // Where it ended up (local state after drag-over)
     const destDayId = findDayId(activeId)
-
     if (!originalDayId || !destDayId) return
 
     if (originalDayId === destDayId) {
-      // ── Within-day reorder ───────────────────────────────────────────────────
       const day = localDays.find((d) => d.id === destDayId)!
       const oldIndex = day.activities.findIndex((a) => a.id === activeId)
       const newIndex = day.activities.findIndex((a) => a.id === overId)
-
       if (oldIndex !== -1 && newIndex !== -1 && oldIndex !== newIndex) {
-        const reordered = arrayMove(day.activities, oldIndex, newIndex)
-        reorderActivities(trip.id, destDayId, reordered)
+        reorderActivities(trip.id, destDayId, arrayMove(day.activities, oldIndex, newIndex))
       }
     } else {
-      // ── Cross-day move ───────────────────────────────────────────────────────
       const destDay = localDays.find((d) => d.id === destDayId)!
       const toIndex = destDay.activities.findIndex((a) => a.id === activeId)
-      moveActivity(
-        trip.id,
-        originalDayId,
-        destDayId,
-        activeId,
-        toIndex >= 0 ? toIndex : destDay.activities.length
-      )
+      moveActivity(trip.id, originalDayId, destDayId, activeId, toIndex >= 0 ? toIndex : destDay.activities.length)
     }
   }
 
-  // ── Preference re-plan ───────────────────────────────────────────────────────
-
-  function handleApplyPreferences(pace: number, budget: number) {
-    // Persist new values so they're saved across reloads
-    updateTrip(trip.id, {
-      preferences: { ...trip.preferences, paceLevel: pace, budgetLevel: budget },
-    })
-    // Auto-send to the AI — ChatPanel listens for this event
+  function handleApplyPreferences(pace: number, budgetLevel: number) {
+    updateTrip(trip.id, { preferences: { ...trip.preferences, paceLevel: pace, budgetLevel } })
     const msg =
       `Please re-plan my trip with ${getPaceLabel(pace)} pace and ` +
-      `${getBudgetLabel(budget)} budget style. ` +
-      `Keep any locked activities exactly as they are and adjust ` +
-      `the rest to match the new preferences.`
-    document.dispatchEvent(
-      new CustomEvent('wandr:send-message', { detail: { message: msg } })
-    )
+      `${getBudgetLabel(budgetLevel)} budget style. ` +
+      `Keep any locked activities exactly as they are and adjust the rest to match the new preferences.`
+    document.dispatchEvent(new CustomEvent('wandr:send-message', { detail: { message: msg } }))
     showToast({ message: 'Re-planning with new preferences…', type: 'info' })
   }
 
-  // ── Budget ───────────────────────────────────────────────────────────────────
   const spent = calculateTripBudget(trip.days)
   const capSet = budget.cap > 0
   const overBudget = capSet && spent > budget.cap
   const spentPct = capSet ? Math.min((spent / budget.cap) * 100, 100) : 0
-
-  // Active drag overlay activity
   const overlayActivity = activeDragId ? findActivity(activeDragId) : null
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full bg-[#0a0a0a]">
+
       {/* ── Trip header ──────────────────────────────────────────────────────── */}
-      <div className="flex-shrink-0 border-b border-gray-200 bg-white px-6 py-4">
+      <div className="flex-shrink-0 border-b border-[#1f1f1f] px-6 py-4">
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0">
-            <h1 className="text-xl font-bold text-gray-900 leading-tight truncate">{name}</h1>
+            <h1 className="text-lg font-bold text-[#f0f0f0] leading-tight truncate">{name}</h1>
             <div className="flex items-center gap-1 mt-0.5">
-              <MapPin size={12} className="text-indigo-500 shrink-0" />
-              <span className="text-sm text-gray-500">{destination.name}</span>
+              <MapPin size={11} className="text-[#555] shrink-0" />
+              <span className="text-[12px] text-[#666]">{destination.name}</span>
             </div>
           </div>
           <div className="flex items-center gap-2 shrink-0">
-            {/* Sliders toggle */}
             {preferences && (
               <button
                 onClick={() => setShowSliders((v) => !v)}
@@ -234,62 +176,59 @@ export function ItineraryView({ trip }: ItineraryViewProps) {
                 className={cn(
                   'w-8 h-8 rounded-lg flex items-center justify-center transition-colors',
                   showSliders
-                    ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-200'
-                    : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                    ? 'bg-white text-black'
+                    : 'bg-[#1a1a1a] text-[#555] border border-[#2a2a2a] hover:text-[#f0f0f0] hover:border-[#444]'
                 )}
               >
                 <SlidersHorizontal size={14} />
               </button>
             )}
-            <div className="w-10 h-10 rounded-xl bg-indigo-600 flex items-center justify-center shadow-sm shadow-indigo-200">
-              <Plane size={18} className="text-white -rotate-45" />
-            </div>
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2 mt-3">
-          <MetaChip icon={<Calendar size={11} />} label={formatDateRange(startDate, endDate)} />
-          <MetaChip icon={<Calendar size={11} />} label={formatNights(startDate, endDate)} />
+        {/* Meta chips */}
+        <div className="flex flex-wrap items-center gap-1.5 mt-3">
+          <MetaChip icon={<Calendar size={10} />} label={formatDateRange(startDate, endDate)} />
+          <MetaChip icon={<Calendar size={10} />} label={formatNights(startDate, endDate)} />
           {preferences && (
             <>
-              <MetaChip icon={<Gauge size={11} />} label={getPaceLabel(preferences.paceLevel)} />
-              <MetaChip icon={<Star size={11} />} label={getBudgetLabel(preferences.budgetLevel)} />
+              <MetaChip icon={<Gauge size={10} />} label={getPaceLabel(preferences.paceLevel)} />
+              <MetaChip icon={<Star size={10} />} label={getBudgetLabel(preferences.budgetLevel)} />
             </>
           )}
         </div>
 
+        {/* Budget bar */}
         {capSet && (
           <div className="mt-3">
-            <div className="flex items-center justify-between mb-1">
-              <span className="text-[11px] text-gray-500">Estimated spend</span>
-              <span className={cn('text-[11px] font-semibold', overBudget ? 'text-red-600' : 'text-gray-700')}>
+            <div className="flex items-center justify-between mb-1.5">
+              <span className="text-[10px] text-[#444]">Estimated spend</span>
+              <span className={cn('text-[11px] font-semibold tabular-nums', overBudget ? 'text-[#ef4444]' : 'text-[#888]')}>
                 {formatCurrency(spent, budget.currency)}
-                <span className="text-gray-400 font-normal">
+                <span className="text-[#333] font-normal">
                   {' '}/ {formatCurrency(budget.cap, budget.currency)}
                 </span>
               </span>
             </div>
-            <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
+            <div className="h-px bg-[#1f1f1f] rounded-full overflow-hidden">
               <div
-                className={cn('h-full rounded-full transition-all duration-500', overBudget ? 'bg-red-500' : 'bg-indigo-500')}
+                className={cn('h-full rounded-full transition-all duration-500', overBudget ? 'bg-[#ef4444]' : 'bg-white')}
                 style={{ width: `${spentPct}%` }}
               />
             </div>
             {overBudget && (
-              <p className="text-[11px] text-red-500 mt-1">
+              <p className="text-[10px] text-[#ef4444] mt-1">
                 {formatCurrency(spent - budget.cap, budget.currency)} over budget
               </p>
             )}
           </div>
         )}
 
+        {/* Interest tags */}
         {preferences?.interests && preferences.interests.length > 0 && (
           <div className="flex flex-wrap gap-1 mt-3">
             {preferences.interests.map((interest) => (
-              <span
-                key={interest}
-                className="text-[11px] px-2 py-0.5 bg-indigo-50 text-indigo-600 rounded-full font-medium capitalize"
-              >
+              <span key={interest} className="text-[10px] px-2 py-0.5 bg-[#1a1a1a] border border-[#2a2a2a] text-[#666] rounded-full capitalize">
                 {interest}
               </span>
             ))}
@@ -297,11 +236,11 @@ export function ItineraryView({ trip }: ItineraryViewProps) {
         )}
       </div>
 
-      {/* ── Preference sliders ───────────────────────────────────────────────── */}
+      {/* ── Preference sliders ─────────────────────────────────────────────── */}
       {preferences && (
         <div
           className={cn(
-            'flex-shrink-0 overflow-hidden transition-all duration-300 bg-gray-50/70 border-b border-gray-100',
+            'flex-shrink-0 overflow-hidden transition-all duration-300 border-b border-[#1f1f1f]',
             showSliders ? 'max-h-52' : 'max-h-0 border-b-0'
           )}
         >
@@ -317,8 +256,8 @@ export function ItineraryView({ trip }: ItineraryViewProps) {
       )}
 
       {/* ── Tabs ─────────────────────────────────────────────────────────────── */}
-      <div className="flex-shrink-0 border-b border-gray-100 bg-white px-6">
-        <div className="flex gap-1">
+      <div className="flex-shrink-0 border-b border-[#1f1f1f] px-6">
+        <div className="flex gap-0">
           <TabButton active={activeTab === 'itinerary'} onClick={() => setActiveTab('itinerary')}>
             Itinerary
           </TabButton>
@@ -341,70 +280,61 @@ export function ItineraryView({ trip }: ItineraryViewProps) {
         </div>
       )}
 
-      {/* ── Day list ──────────────────────────────────────────────────────────── */}
+      {/* ── Day list ─────────────────────────────────────────────────────────── */}
       {activeTab === 'itinerary' && (
-      <div className="flex-1 overflow-y-auto animate-in">
-        {localDays.length === 0 ? (
-          <div className="flex items-center justify-center h-full">
-            <div className="text-center">
-              <p className="text-2xl mb-2">✈️</p>
-              <p className="text-gray-500 text-sm font-medium">No itinerary yet</p>
-              <p className="text-gray-300 text-xs mt-1">Chat with the AI to start planning.</p>
+        <div className="flex-1 overflow-y-auto animate-in">
+          {localDays.length === 0 ? (
+            <div className="flex items-center justify-center h-full">
+              <div className="text-center">
+                <p className="text-2xl mb-2">✈️</p>
+                <p className="text-[#555] text-sm font-medium">No itinerary yet</p>
+                <p className="text-[#333] text-xs mt-1">Chat with the AI to start planning.</p>
+              </div>
             </div>
-          </div>
-        ) : (
-          <DndContext
-            sensors={sensors}
-            collisionDetection={closestCorners}
-            onDragStart={handleDragStart}
-            onDragOver={handleDragOver}
-            onDragEnd={handleDragEnd}
-          >
-            {/* Stagger: each DayCard slides up with an increasing delay */}
-            <motion.div
-              key={trip.id}
-              initial="hidden"
-              animate="show"
-              variants={{ show: { transition: { staggerChildren: 0.07 } } }}
-              className="p-4 md:p-6 space-y-4 max-w-2xl mx-auto w-full pb-8"
+          ) : (
+            <DndContext
+              sensors={sensors}
+              collisionDetection={closestCorners}
+              onDragStart={handleDragStart}
+              onDragOver={handleDragOver}
+              onDragEnd={handleDragEnd}
             >
-              {localDays.map((day, index) => (
-                <motion.div
-                  key={day.id}
-                  variants={{
-                    hidden: { opacity: 0, y: 20 },
-                    show: {
-                      opacity: 1,
-                      y: 0,
-                      transition: { duration: 0.38, ease: [0.16, 1, 0.3, 1] },
-                    },
-                  }}
-                >
-                  <DayCard
-                    day={day}
-                    index={index}
-                    tripCurrency={budget.currency}
-                    isDraggingAny={activeDragId !== null}
-                  />
-                </motion.div>
-              ))}
-            </motion.div>
+              <motion.div
+                key={trip.id}
+                initial="hidden"
+                animate="show"
+                variants={{ show: { transition: { staggerChildren: 0.06 } } }}
+                className="p-4 md:p-6 space-y-3 max-w-2xl mx-auto w-full pb-10"
+              >
+                {localDays.map((day, index) => (
+                  <motion.div
+                    key={day.id}
+                    variants={{
+                      hidden: { opacity: 0, y: 16 },
+                      show: { opacity: 1, y: 0, transition: { duration: 0.36, ease: [0.16, 1, 0.3, 1] } },
+                    }}
+                  >
+                    <DayCard
+                      day={day}
+                      index={index}
+                      tripCurrency={budget.currency}
+                      isDraggingAny={activeDragId !== null}
+                    />
+                  </motion.div>
+                ))}
+              </motion.div>
 
-            {/* Ghost card that follows the cursor while dragging */}
-            <DragOverlay dropAnimation={null}>
-              {overlayActivity && (
-                <div className="shadow-2xl shadow-indigo-200/50 rounded-xl bg-white border border-indigo-200 opacity-95 rotate-1 scale-[1.02]">
-                  <ActivityCard
-                    activity={overlayActivity}
-                    isFirst={false}
-                    hasConflict={false}
-                  />
-                </div>
-              )}
-            </DragOverlay>
-          </DndContext>
-        )}
-      </div>
+              {/* Drag overlay ghost */}
+              <DragOverlay dropAnimation={null}>
+                {overlayActivity && (
+                  <div className="shadow-2xl shadow-black/60 rounded-xl bg-[#1a1a1a] border border-[#333] opacity-90 rotate-1 scale-[1.02]">
+                    <ActivityCard activity={overlayActivity} isFirst={false} hasConflict={false} />
+                  </div>
+                )}
+              </DragOverlay>
+            </DndContext>
+          )}
+        </div>
       )}
     </div>
   )
@@ -412,23 +342,15 @@ export function ItineraryView({ trip }: ItineraryViewProps) {
 
 // ─── TabButton ────────────────────────────────────────────────────────────────
 
-function TabButton({
-  active,
-  onClick,
-  children,
-}: {
-  active: boolean
-  onClick: () => void
-  children: ReactNode
-}) {
+function TabButton({ active, onClick, children }: { active: boolean; onClick: () => void; children: ReactNode }) {
   return (
     <button
       onClick={onClick}
       className={cn(
-        'px-4 py-2.5 text-sm font-medium border-b-2 transition-colors',
+        'px-4 py-2.5 text-[12px] font-medium border-b-2 transition-colors',
         active
-          ? 'border-indigo-600 text-indigo-600'
-          : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+          ? 'border-white text-[#f0f0f0]'
+          : 'border-transparent text-[#555] hover:text-[#888] hover:border-[#333]'
       )}
     >
       {children}
@@ -436,12 +358,12 @@ function TabButton({
   )
 }
 
-// ─── MetaChip ──────────────────────────────────────────────────────────────────
+// ─── MetaChip ────────────────────────────────────────────────────────────────
 
 function MetaChip({ icon, label }: { icon: React.ReactNode; label: string }) {
   return (
-    <span className="flex items-center gap-1 px-2 py-1 bg-gray-100 rounded-lg text-[11px] text-gray-600 font-medium">
-      <span className="text-gray-400">{icon}</span>
+    <span className="flex items-center gap-1 px-2 py-1 bg-[#111111] border border-[#1f1f1f] rounded-lg text-[11px] text-[#666] font-medium">
+      <span className="text-[#444]">{icon}</span>
       {label}
     </span>
   )

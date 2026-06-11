@@ -12,7 +12,7 @@ interface Props {
   isFirst: boolean
   hasConflict: boolean
   prevTravelMins: number
-  isDraggingAny: boolean // true while ANY item in the context is being dragged
+  isDraggingAny: boolean
 }
 
 export function SortableActivityCard({
@@ -38,7 +38,6 @@ export function SortableActivityCard({
 
   return (
     <div ref={setNodeRef} style={style}>
-      {/* Travel connector: hide during any active drag to avoid layout jitter */}
       {!isFirst && !isDraggingAny && (
         <TravelConnector minutes={prevTravelMins} />
       )}
@@ -46,10 +45,10 @@ export function SortableActivityCard({
       <div
         className={cn(
           'relative group/sortable transition-transform duration-150',
-          isDragging ? 'opacity-30' : 'hover:-translate-y-0.5 hover:shadow-sm'
+          isDragging ? 'opacity-20' : 'hover:-translate-y-px'
         )}
       >
-        {/* Drag handle — floats over the left padding, visible on card hover */}
+        {/* Drag handle */}
         <button
           {...attributes}
           {...listeners}
@@ -63,7 +62,7 @@ export function SortableActivityCard({
             'focus:outline-none',
           )}
         >
-          <GripVertical size={12} className="text-gray-400" />
+          <GripVertical size={11} className="text-[#444]" />
         </button>
 
         <ActivityCard
