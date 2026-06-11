@@ -2,6 +2,8 @@
 
 > A portfolio-quality AI travel planning app. Describe a trip in plain English and get a full day-by-day itinerary in seconds — then drag, drop, and edit it in real time.
 
+**[→ Live demo](https://wanderer-oklcy299w-testing-wanderer.vercel.app/)**
+
 [![Next.js](https://img.shields.io/badge/Next.js-16-black?logo=next.js)](https://nextjs.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5-blue?logo=typescript)](https://www.typescriptlang.org/)
 [![Claude](https://img.shields.io/badge/Powered%20by-Claude%20AI-orange)](https://anthropic.com)
@@ -162,7 +164,7 @@ src/
 
 ```bash
 # 1. Clone the repo
-git clone https://github.com/YOUR_USERNAME/wandr.git
+git clone https://github.com/DogDestroyer/Wanderer-AI.git
 cd wandr
 
 # 2. Install dependencies
@@ -186,7 +188,7 @@ Open [http://localhost:3000](http://localhost:3000). No password is required loc
 
 ```bash
 # Create a new repo on github.com, then:
-git remote add origin https://github.com/YOUR_USERNAME/wandr.git
+git remote add origin https://github.com/DogDestroyer/Wanderer-AI.git
 git push -u origin master
 ```
 
