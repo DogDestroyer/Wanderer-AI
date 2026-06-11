@@ -1,11 +1,12 @@
 'use client'
 
 import { useState, useRef, useEffect, useCallback, FormEvent, KeyboardEvent } from 'react'
-import { Send, Sparkles, Loader2, User, Wand2 } from 'lucide-react'
+import { Send, Sparkles, Loader2, User, Wand2, Settings2 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useStore } from '@/lib/store'
 import type { ChatMessage, AgentTripResponse } from '@/lib/types'
 import { cn } from '@/lib/utils'
+import { AgentSettingsPanel } from './AgentSettingsPanel'
 
 // ─── ChatPanel ─────────────────────────────────────────────────────────────────
 // Persistent chat interface. When no trip exists, messages are stored under the
@@ -15,6 +16,7 @@ export function ChatPanel() {
   const [input, setInput] = useState('')
   const [isEnhancing, setIsEnhancing] = useState(false)
   const [isFocused, setIsFocused] = useState(false)
+  const [showSettings, setShowSettings] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
@@ -28,6 +30,7 @@ export function ChatPanel() {
   const setIsGenerating = useStore((s) => s.setIsGenerating)
   const createTrip = useStore((s) => s.createTrip)
   const updateTrip = useStore((s) => s.updateTrip)
+  const agentSettings = useStore((s) => s.agentSettings)
 
   // Active trip object (null when no trip yet)
   const activeTrip = activeTripId ? trips[activeTripId] : null
@@ -128,6 +131,7 @@ export function ChatPanel() {
         body: JSON.stringify({
           messages: historyToSend,
           trip: activeTrip ?? null,
+          agentSettings,
         }),
       })
 
@@ -263,13 +267,43 @@ export function ChatPanel() {
           <p className="text-sm font-semibold text-gray-900 leading-tight">Wandr AI</p>
           <p className="text-[11px] text-gray-400 leading-tight">Travel planning assistant</p>
         </div>
-        {isGenerating && (
-          <div className="ml-auto flex items-center gap-1.5 text-indigo-500">
-            <Loader2 size={12} className="animate-spin" />
-            <span className="text-[11px]">Thinking…</span>
-          </div>
-        )}
+        <div className="ml-auto flex items-center gap-2">
+          {isGenerating && (
+            <div className="flex items-center gap-1.5 text-indigo-500">
+              <Loader2 size={12} className="animate-spin" />
+              <span className="text-[11px]">Thinking…</span>
+            </div>
+          )}
+          <button
+            onClick={() => setShowSettings((v) => !v)}
+            title="Agent settings"
+            className={cn(
+              'w-7 h-7 rounded-lg flex items-center justify-center transition-colors',
+              showSettings
+                ? 'bg-indigo-100 text-indigo-600'
+                : 'text-gray-400 hover:text-gray-600 hover:bg-gray-100'
+            )}
+          >
+            <Settings2 size={14} />
+          </button>
+        </div>
       </div>
+
+      {/* Collapsible agent settings panel */}
+      <AnimatePresence initial={false}>
+        {showSettings && (
+          <motion.div
+            key="settings"
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+            className="overflow-hidden flex-shrink-0"
+          >
+            <AgentSettingsPanel />
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Message list */}
       <div className="flex-1 overflow-y-auto p-4 space-y-3 min-h-0">

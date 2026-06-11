@@ -123,6 +123,41 @@ export interface TripPlan {
   updatedAt: string
 }
 
+// ─── Agent settings ─────────────────────────────────────────────────────────
+// User-configurable controls that shape the system prompt on every request.
+// All fields default to off/auto so the AI uses its own judgment unless told otherwise.
+
+export interface AgentSettings {
+  // Planning behaviour
+  activitiesPerDay: 'auto' | 'light' | 'moderate' | 'packed' // auto = Claude decides
+  groupByLocation:  boolean  // cluster nearby spots to minimise travel
+  includeMeals:     boolean  // explicitly include breakfast / lunch / dinner stops
+  includeTransport: boolean  // include transit steps between activities
+
+  // Sources & style — what kinds of places to emphasise
+  mainstream:     boolean  // well-known tourist highlights
+  hiddenGems:     boolean  // off-the-beaten-path, local favourites
+  foodScene:      boolean  // street food, restaurants, food markets
+  historyCulture: boolean  // museums, heritage sites, local traditions
+  outdoors:       boolean  // nature, hiking, parks, beaches
+  nightlife:      boolean  // bars, clubs, live music
+  shopping:       boolean  // markets, boutiques, shopping districts
+}
+
+export const DEFAULT_AGENT_SETTINGS: AgentSettings = {
+  activitiesPerDay: 'auto',
+  groupByLocation:  false,
+  includeMeals:     false,
+  includeTransport: false,
+  mainstream:       false,
+  hiddenGems:       false,
+  foodScene:        false,
+  historyCulture:   false,
+  outdoors:         false,
+  nightlife:        false,
+  shopping:         false,
+}
+
 // ─── Chat ───────────────────────────────────────────────────────────────────
 
 export interface ChatMessage {

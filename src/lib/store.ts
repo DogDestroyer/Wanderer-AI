@@ -2,7 +2,8 @@
 
 import { create } from 'zustand'
 import { persist, createJSONStorage } from 'zustand/middleware'
-import type { TripPlan, Day, Activity, ChatMessage, AgentSuggestion, WeatherForecast } from './types'
+import type { TripPlan, Day, Activity, ChatMessage, AgentSuggestion, WeatherForecast, AgentSettings } from './types'
+import { DEFAULT_AGENT_SETTINGS } from './types'
 import { recalculateDay } from './recalculate'
 
 // ─── State shape ──────────────────────────────────────────────────────────────
@@ -18,6 +19,7 @@ interface AppState {
   chatHistory: Record<string, ChatMessage[]>
   isGenerating: boolean
   sidebarOpen: boolean  // mobile sidebar toggle
+  agentSettings: AgentSettings
 
   // ── Trip CRUD ──
   createTrip: (trip: TripPlan) => void
@@ -25,6 +27,7 @@ interface AppState {
   deleteTrip: (tripId: string) => void
   setActiveTrip: (tripId: string | null) => void
   setSidebarOpen: (open: boolean) => void
+  updateAgentSettings: (patch: Partial<AgentSettings>) => void
 
   // ── Day ──
   updateDay: (tripId: string, dayId: string, patch: Partial<Day>) => void
@@ -105,6 +108,7 @@ export const useStore = create<AppState>()(
       chatHistory: {},
       isGenerating: false,
       sidebarOpen: false,
+      agentSettings: DEFAULT_AGENT_SETTINGS,
 
       // ── Trip CRUD ──────────────────────────────────────────────────────────
 
@@ -138,6 +142,8 @@ export const useStore = create<AppState>()(
 
       setActiveTrip: (tripId) => set({ activeTripId: tripId }),
       setSidebarOpen: (open) => set({ sidebarOpen: open }),
+      updateAgentSettings: (patch) =>
+        set((s) => ({ agentSettings: { ...s.agentSettings, ...patch } })),
 
       // ── Day ───────────────────────────────────────────────────────────────
 
@@ -315,6 +321,7 @@ export const useStore = create<AppState>()(
         trips: s.trips,
         activeTripId: s.activeTripId,
         chatHistory: s.chatHistory,
+        agentSettings: s.agentSettings,
       }),
     }
   )

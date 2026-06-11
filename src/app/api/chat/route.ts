@@ -1,5 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk'
-import type { TripPlan, AgentTripResponse } from '@/lib/types'
+import type { TripPlan, AgentTripResponse, AgentSettings } from '@/lib/types'
+import { DEFAULT_AGENT_SETTINGS } from '@/lib/types'
 
 const client = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY!,
@@ -106,8 +107,6 @@ Do NOT include any text after the JSON object.
 }
 
 ## Activity guidelines
-- 5–8 activities per day for a balanced pace
-- Group nearby locations together to minimise travel
 - Typical timings: breakfast 07:30–09:00, lunch 12:30–14:00, dinner 19:00–21:00
 - Day 1: start with arrival transport + accommodation check-in
 - Last day: end with departure transport
@@ -125,18 +124,55 @@ Do NOT include any text after the JSON object.
   "preferences": { ... }          // optional
 }`
 
+// ─── Dynamic settings prompt ──────────────────────────────────────────────────
+// Translates the user's AgentSettings toggles into system prompt instructions.
+// Only active (non-default) settings add text — everything else is left to Claude.
+
+function buildSettingsPrompt(s: AgentSettings): string {
+  const lines: string[] = []
+
+  // Planning
+  const paceMap = { light: '2–4', moderate: '5–7', packed: '8–10' }
+  if (s.activitiesPerDay !== 'auto') {
+    lines.push(`- Plan ${paceMap[s.activitiesPerDay]} activities per day`)
+  }
+  if (s.groupByLocation)  lines.push('- Cluster activities by neighbourhood to minimise travel time')
+  if (s.includeMeals)     lines.push('- Explicitly include breakfast, lunch, and dinner recommendations')
+  if (s.includeTransport) lines.push('- Include transit/walking steps between activities')
+
+  // Sources & Style — collect active ones
+  const styles: string[] = []
+  if (s.mainstream)     styles.push('well-known tourist highlights and iconic landmarks')
+  if (s.hiddenGems)     styles.push('hidden gems, local favourites, and off-the-beaten-path spots')
+  if (s.foodScene)      styles.push('street food, local restaurants, food markets, and culinary experiences')
+  if (s.historyCulture) styles.push('historical sites, museums, cultural experiences, and local traditions')
+  if (s.outdoors)       styles.push('nature, hiking, parks, beaches, and outdoor activities')
+  if (s.nightlife)      styles.push('bars, live music, clubs, and evening entertainment')
+  if (s.shopping)       styles.push('markets, boutiques, and shopping districts')
+
+  if (styles.length > 0) {
+    lines.push(`- Emphasise: ${styles.join('; ')}`)
+  }
+
+  return lines.length > 0
+    ? `\n\n## User preferences\n${lines.join('\n')}`
+    : ''
+}
+
 export async function POST(request: Request): Promise<Response> {
   const body = (await request.json()) as {
     messages: Array<{ role: 'user' | 'assistant'; content: string }>
     trip?: TripPlan | null
+    agentSettings?: AgentSettings
   }
 
-  const { messages, trip } = body
+  const { messages, trip, agentSettings = DEFAULT_AGENT_SETTINGS } = body
 
-  // Inject current trip as extra context when one exists
+  // Build the full system prompt: base + user settings + trip context
+  const settingsPrompt = buildSettingsPrompt(agentSettings)
   const systemPrompt = trip
-    ? `${BASE_SYSTEM_PROMPT}\n\n## Current trip the user is editing\n${JSON.stringify(trip, null, 2)}`
-    : `${BASE_SYSTEM_PROMPT}\n\nToday's date: ${new Date().toISOString().split('T')[0]}`
+    ? `${BASE_SYSTEM_PROMPT}${settingsPrompt}\n\n## Current trip the user is editing\n${JSON.stringify(trip, null, 2)}`
+    : `${BASE_SYSTEM_PROMPT}${settingsPrompt}\n\nToday's date: ${new Date().toISOString().split('T')[0]}`
 
   const encoder = new TextEncoder()
 
