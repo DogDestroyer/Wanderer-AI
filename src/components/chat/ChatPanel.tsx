@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useRef, useEffect, useCallback, FormEvent, KeyboardEvent } from 'react'
-import { Send, Sparkles, Loader2, User } from 'lucide-react'
+import { Send, Sparkles, Loader2, User, Wand2 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useStore } from '@/lib/store'
 import type { ChatMessage, AgentTripResponse } from '@/lib/types'
@@ -13,6 +13,7 @@ import { cn } from '@/lib/utils'
 
 export function ChatPanel() {
   const [input, setInput] = useState('')
+  const [isEnhancing, setIsEnhancing] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
@@ -211,6 +212,38 @@ export function ChatPanel() {
     return () => document.removeEventListener('wandr:send-message', handler)
   }, [])
 
+  // ── Prompt enhancer ──────────────────────────────────────────────────────────
+  // Takes whatever is in the textarea, calls /api/enhance, and replaces it with
+  // a well-structured trip planning prompt the user can review before sending.
+  async function handleEnhance() {
+    const text = input.trim()
+    if (!text || isEnhancing || isGenerating) return
+    setIsEnhancing(true)
+    try {
+      const res = await fetch('/api/enhance', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text }),
+      })
+      if (!res.ok) return
+      const { enhanced } = await res.json()
+      if (enhanced) {
+        setInput(enhanced)
+        requestAnimationFrame(() => {
+          const el = textareaRef.current
+          if (!el) return
+          el.style.height = 'auto'
+          el.style.height = `${Math.min(el.scrollHeight, 120)}px`
+          el.focus()
+        })
+      }
+    } catch {
+      // silently keep original text on error
+    } finally {
+      setIsEnhancing(false)
+    }
+  }
+
   function handleKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
@@ -293,6 +326,26 @@ export function ChatPanel() {
             )}
             style={{ minHeight: '40px', maxHeight: '120px' }}
           />
+          {/* Enhance button — polishes rough ideas into a proper prompt */}
+          <button
+            type="button"
+            onClick={handleEnhance}
+            disabled={!input.trim() || isGenerating || isEnhancing}
+            title="Enhance prompt with AI"
+            className={cn(
+              'flex-shrink-0 w-10 h-10 rounded-xl flex items-center justify-center',
+              'bg-violet-50 hover:bg-violet-100 active:bg-violet-200',
+              'text-violet-500 disabled:text-gray-300 disabled:bg-gray-100',
+              'transition-colors',
+            )}
+          >
+            {isEnhancing ? (
+              <Loader2 size={14} className="animate-spin text-violet-400" />
+            ) : (
+              <Wand2 size={14} />
+            )}
+          </button>
+
           <button
             type="submit"
             disabled={!input.trim() || isGenerating}
@@ -311,7 +364,7 @@ export function ChatPanel() {
           </button>
         </form>
         <p className="text-[10px] text-gray-400 mt-1.5 text-center">
-          Enter to send · Shift+Enter for new line
+          Enter to send · Shift+Enter for new line · <span className="text-violet-400">✦ wand to enhance</span>
         </p>
       </div>
     </div>
