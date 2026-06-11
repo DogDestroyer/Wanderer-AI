@@ -77,10 +77,40 @@ export interface TripBudget {
   currency: string    // ISO currency code
 }
 
+export type PartyType = 'solo' | 'couple' | 'family' | 'friends'
+export type AccommodationType = 'hostel' | 'mid-range' | 'boutique' | 'luxury'
+export type MobilityType = 'full' | 'limited'
+
+export const INTEREST_OPTIONS = [
+  'food', 'nature', 'shopping', 'history', 'nightlife', 'art', 'adventure',
+] as const
+
 export interface TripPreferences {
+  // Core — always present
   paceLevel: number    // 0–100: 0 = very relaxed, 100 = packed
   budgetLevel: number  // 0–100: 0 = shoestring, 100 = luxury
   interests: string[]  // e.g. ["history", "food", "hiking"]
+  // Extended — optional for backward compat with persisted trips
+  tripStyle?: number          // 0–100: 0 = nature-focused, 100 = city-focused
+  partySize?: number          // 1–10
+  partyType?: PartyType
+  diningStyle?: number        // 0–100: 0 = street food, 100 = fine dining
+  accommodation?: AccommodationType
+  mobility?: MobilityType     // 'full' = walking OK, 'limited' = minimise walking
+  mustAvoid?: string          // free-text hard constraints
+}
+
+export const DEFAULT_PREFERENCES: TripPreferences = {
+  paceLevel: 50,
+  budgetLevel: 50,
+  interests: [],
+  tripStyle: 50,
+  partySize: 2,
+  partyType: 'couple',
+  diningStyle: 50,
+  accommodation: 'mid-range',
+  mobility: 'full',
+  mustAvoid: '',
 }
 
 export type SuggestionType =

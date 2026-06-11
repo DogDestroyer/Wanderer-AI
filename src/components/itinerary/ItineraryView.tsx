@@ -142,7 +142,7 @@ export function ItineraryView({ trip }: ItineraryViewProps) {
   function handleApplyPreferences(pace: number, budgetLevel: number) {
     updateTrip(trip.id, { preferences: { ...trip.preferences, paceLevel: pace, budgetLevel } })
     const msg =
-      `Please re-plan my trip with ${getPaceLabel(pace)} pace and ` +
+      `Please re-plan my trip using replace_day_activities with ${getPaceLabel(pace)} pace and ` +
       `${getBudgetLabel(budgetLevel)} budget style. ` +
       `Keep any locked activities exactly as they are and adjust the rest to match the new preferences.`
     document.dispatchEvent(new CustomEvent('wandr:send-message', { detail: { message: msg } }))
@@ -246,9 +246,7 @@ export function ItineraryView({ trip }: ItineraryViewProps) {
         >
           <div className="px-6 py-4">
             <PreferenceSliders
-              savedPace={preferences.paceLevel}
-              savedBudget={preferences.budgetLevel}
-              isGenerating={isGenerating}
+              tripId={trip.id}
               onApply={handleApplyPreferences}
             />
           </div>

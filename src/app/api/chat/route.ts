@@ -1,6 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk'
-import type { TripPlan, AgentTripResponse, AgentSettings } from '@/lib/types'
+import type { TripPlan, AgentTripResponse, AgentSettings, TripPreferences } from '@/lib/types'
 import { DEFAULT_AGENT_SETTINGS } from '@/lib/types'
+import { getPaceLabel, getBudgetLabel, getTripStyleLabel, getDiningLabel } from '@/lib/utils'
 
 const client = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY!,
@@ -127,11 +128,13 @@ Always use **"create_trip"**. Never use replace_trip, replace_day_activities, or
 }
 
 ## Activity guidelines
+- Keep descriptions to 1–2 sentences max — concise but vivid
 - Typical timings: breakfast 07:30–09:00, lunch 12:30–14:00, dinner 19:00–21:00
 - Day 1: start with arrival transport + accommodation check-in
 - Last day: end with departure transport
 - Set weatherSensitive: true for open-air markets, beach days, walking tours, etc.
 - Use accurate latitude/longitude coordinates
+- For trips longer than 10 days, plan 3–4 activities per day (not 5–6) to stay within output limits
 
 ## AgentTripPatch (for replace_day_activities and update_trip_meta)
 
@@ -146,6 +149,61 @@ Always use **"create_trip"**. Never use replace_trip, replace_day_activities, or
   "budget": { ... },                   // optional
   "preferences": { ... }               // optional
 }`
+
+// ─── Preferences prompt ───────────────────────────────────────────────────────
+// Translates the full TripPreferences object into a system prompt block.
+
+function buildPreferencesPrompt(prefs: TripPreferences | null | undefined): string {
+  if (!prefs) return ''
+
+  const lines: string[] = [
+    '## User Trip Preferences',
+    '',
+    'These preferences were set by the user before writing their message. HONOUR them when planning — they are the user\'s baseline intent.',
+    '',
+    `- Budget style: ${getBudgetLabel(prefs.budgetLevel)} (${prefs.budgetLevel}/100, 0=shoestring, 100=luxury)`,
+    `- Pace: ${getPaceLabel(prefs.paceLevel)} (${prefs.paceLevel}/100, 0=very relaxed, 100=jam-packed)`,
+  ]
+
+  if (prefs.tripStyle !== undefined) {
+    lines.push(`- Trip style: ${getTripStyleLabel(prefs.tripStyle)} (${prefs.tripStyle}/100, 0=pure nature, 100=pure city)`)
+  }
+  if (prefs.interests?.length) {
+    lines.push(`- Interests: ${prefs.interests.join(', ')} — weight the itinerary toward these`)
+  }
+  if (prefs.partySize && prefs.partyType) {
+    lines.push(`- Party: ${prefs.partySize} ${prefs.partySize === 1 ? 'person' : 'people'}, ${prefs.partyType}`)
+  }
+  if (prefs.diningStyle !== undefined) {
+    lines.push(`- Dining: ${getDiningLabel(prefs.diningStyle)} (${prefs.diningStyle}/100, 0=street food, 100=fine dining)`)
+  }
+  if (prefs.accommodation) {
+    const accomMap: Record<string, string> = {
+      hostel: 'Hostels / budget guesthouses',
+      'mid-range': 'Mid-range hotels',
+      boutique: 'Boutique / design hotels',
+      luxury: 'Luxury / 5-star hotels',
+    }
+    lines.push(`- Accommodation: ${accomMap[prefs.accommodation] ?? prefs.accommodation}`)
+  }
+  if (prefs.mobility) {
+    lines.push(`- Mobility: ${prefs.mobility === 'full' ? 'Lots of walking OK — no constraint' : 'Minimise walking — cluster venues, prefer transit'}`)
+  }
+  if (prefs.mustAvoid?.trim()) {
+    lines.push(`- Must avoid (hard constraint): ${prefs.mustAvoid}`)
+  }
+
+  lines.push(
+    '',
+    '**Precedence rule**: If the user\'s message directly conflicts with a preference above, the MESSAGE wins.',
+    'When this happens, briefly note the override (e.g. "You mentioned luxury hotels, so I\'ve upgraded from your mid-range preference").',
+    '',
+    'After generating the plan, add ONE sentence to your conversational message reflecting key tailoring,',
+    'e.g. "Kept it budget-friendly and packed the days with food markets and nature walks, as set in your preferences."',
+  )
+
+  return '\n\n' + lines.join('\n')
+}
 
 // ─── Dynamic settings prompt ──────────────────────────────────────────────────
 
@@ -183,15 +241,20 @@ export async function POST(request: Request): Promise<Response> {
     messages: Array<{ role: 'user' | 'assistant'; content: string }>
     trip?: TripPlan | null
     agentSettings?: AgentSettings
+    preferences?: TripPreferences | null
   }
 
-  const { messages, trip, agentSettings = DEFAULT_AGENT_SETTINGS } = body
+  const { messages, trip, agentSettings = DEFAULT_AGENT_SETTINGS, preferences } = body
 
-  const settingsPrompt = buildSettingsPrompt(agentSettings)
+  // Use trip's own preferences if available, otherwise fall back to passed preferences
+  const activePreferences = trip?.preferences ?? preferences ?? null
+
+  const settingsPrompt     = buildSettingsPrompt(agentSettings)
+  const preferencesPrompt  = buildPreferencesPrompt(activePreferences)
   const today = new Date().toISOString().split('T')[0]
   const systemPrompt = trip
-    ? `${BASE_SYSTEM_PROMPT}${settingsPrompt}\n\n## Current active trip\n\nThe user currently has this trip open. Use its day IDs when patching days.\n\n${JSON.stringify(trip, null, 2)}`
-    : `${BASE_SYSTEM_PROMPT}${settingsPrompt}\n\nNo active trip. Today's date: ${today}. Always use action "create_trip".`
+    ? `${BASE_SYSTEM_PROMPT}${settingsPrompt}${preferencesPrompt}\n\n## Current active trip\n\nThe user currently has this trip open. Use its day IDs when patching days.\n\n${JSON.stringify(trip, null, 2)}`
+    : `${BASE_SYSTEM_PROMPT}${settingsPrompt}${preferencesPrompt}\n\nNo active trip. Today's date: ${today}. Always use action "create_trip".`
 
   const encoder = new TextEncoder()
 
@@ -204,7 +267,7 @@ export async function POST(request: Request): Promise<Response> {
       try {
         const stream = client.messages.stream({
           model: 'claude-opus-4-8',
-          max_tokens: 20000,
+          max_tokens: 32000,
           thinking: { type: 'adaptive' },
           system: systemPrompt,
           messages,

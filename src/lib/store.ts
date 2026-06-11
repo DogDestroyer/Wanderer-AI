@@ -2,8 +2,8 @@
 
 import { create } from 'zustand'
 import { persist, createJSONStorage } from 'zustand/middleware'
-import type { TripPlan, Day, Activity, ChatMessage, AgentSuggestion, WeatherForecast, AgentSettings } from './types'
-import { DEFAULT_AGENT_SETTINGS } from './types'
+import type { TripPlan, Day, Activity, ChatMessage, AgentSuggestion, WeatherForecast, AgentSettings, TripPreferences } from './types'
+import { DEFAULT_AGENT_SETTINGS, DEFAULT_PREFERENCES } from './types'
 import { recalculateDay } from './recalculate'
 
 // ─── State shape ──────────────────────────────────────────────────────────────
@@ -20,6 +20,7 @@ interface AppState {
   isGenerating: boolean
   sidebarOpen: boolean  // mobile sidebar toggle
   agentSettings: AgentSettings
+  draftPreferences: TripPreferences  // pre-trip preference state (hero layout)
 
   // ── Trip CRUD ──
   createTrip: (trip: TripPlan) => void
@@ -28,6 +29,7 @@ interface AppState {
   setActiveTrip: (tripId: string | null) => void
   setSidebarOpen: (open: boolean) => void
   updateAgentSettings: (patch: Partial<AgentSettings>) => void
+  updateDraftPreferences: (patch: Partial<TripPreferences>) => void
 
   // ── Day ──
   updateDay: (tripId: string, dayId: string, patch: Partial<Day>) => void
@@ -109,15 +111,24 @@ export const useStore = create<AppState>()(
       isGenerating: false,
       sidebarOpen: false,
       agentSettings: DEFAULT_AGENT_SETTINGS,
+      draftPreferences: DEFAULT_PREFERENCES,
 
       // ── Trip CRUD ──────────────────────────────────────────────────────────
 
       createTrip: (trip) =>
         set((s) => {
-          // Migrate any messages from the pre-trip '__new__' temp key into the real trip key
+          // Migrate any messages from the pre-trip '__new__' temp key into the real trip key.
+          // Merge draftPreferences to ensure all new preference fields are populated.
           const { '__new__': newMsgs, ...restHistory } = s.chatHistory
+          const mergedTrip: TripPlan = {
+            ...trip,
+            preferences: {
+              ...s.draftPreferences,          // provides tripStyle, partySize, etc.
+              ...trip.preferences,            // AI-generated values override (paceLevel, budgetLevel, interests)
+            },
+          }
           return {
-            trips: { ...s.trips, [trip.id]: trip },
+            trips: { ...s.trips, [trip.id]: mergedTrip },
             activeTripId: trip.id,
             chatHistory: {
               ...restHistory,
@@ -144,6 +155,8 @@ export const useStore = create<AppState>()(
       setSidebarOpen: (open) => set({ sidebarOpen: open }),
       updateAgentSettings: (patch) =>
         set((s) => ({ agentSettings: { ...s.agentSettings, ...patch } })),
+      updateDraftPreferences: (patch) =>
+        set((s) => ({ draftPreferences: { ...s.draftPreferences, ...patch } })),
 
       // ── Day ───────────────────────────────────────────────────────────────
 
@@ -316,12 +329,13 @@ export const useStore = create<AppState>()(
       onRehydrateStorage: () => (state) => {
         state?.setHasHydrated(true)
       },
-      // Only persist trips, chatHistory, and activeTripId — not transient UI state
+      // Only persist trips, chatHistory, activeTripId, settings — not transient UI state
       partialize: (s) => ({
         trips: s.trips,
         activeTripId: s.activeTripId,
         chatHistory: s.chatHistory,
         agentSettings: s.agentSettings,
+        draftPreferences: s.draftPreferences,
       }),
     }
   )

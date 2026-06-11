@@ -109,6 +109,22 @@ export function getBudgetLabel(value: number): string {
   return 'Luxury'
 }
 
+export function getTripStyleLabel(value: number): string {
+  if (value <= 20) return 'Pure Nature'
+  if (value <= 40) return 'Mostly Nature'
+  if (value <= 60) return 'Mixed'
+  if (value <= 80) return 'Mostly City'
+  return 'Pure City'
+}
+
+export function getDiningLabel(value: number): string {
+  if (value <= 20) return 'Street Food'
+  if (value <= 40) return 'Local Spots'
+  if (value <= 60) return 'Mixed'
+  if (value <= 80) return 'Restaurants'
+  return 'Fine Dining'
+}
+
 // ─── Category helpers ────────────────────────────────────────────────────────
 
 export function getCategoryColor(category: string): string {

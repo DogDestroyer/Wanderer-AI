@@ -1,24 +1,34 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Gauge, Star, RefreshCw } from 'lucide-react'
+import { useStore } from '@/lib/store'
 import { cn, getPaceLabel, getBudgetLabel } from '@/lib/utils'
 
+// ─── PreferenceSliders ────────────────────────────────────────────────────────
+// Reads directly from the active trip's preferences in the store.
+// Local slider state tracks the "pending" edit; Apply commits to store + re-plans.
+
 interface PreferenceSlidersProps {
-  savedPace: number
-  savedBudget: number
-  isGenerating: boolean
+  tripId: string
   onApply: (pace: number, budget: number) => void
 }
 
-export function PreferenceSliders({
-  savedPace,
-  savedBudget,
-  isGenerating,
-  onApply,
-}: PreferenceSlidersProps) {
-  const [pace, setPace] = useState(savedPace)
+export function PreferenceSliders({ tripId, onApply }: PreferenceSlidersProps) {
+  const trips       = useStore((s) => s.trips)
+  const isGenerating = useStore((s) => s.isGenerating)
+  const preferences  = trips[tripId]?.preferences
+
+  const savedPace   = preferences?.paceLevel   ?? 50
+  const savedBudget = preferences?.budgetLevel ?? 50
+
+  // Local state mirrors saved values; diverges only while dragging
+  const [pace,   setPace]   = useState(savedPace)
   const [budget, setBudget] = useState(savedBudget)
+
+  // Keep local state in sync if the trip is externally updated (e.g. by the AI)
+  useEffect(() => { setPace(savedPace)   }, [savedPace])
+  useEffect(() => { setBudget(savedBudget) }, [savedBudget])
 
   const isDirty = pace !== savedPace || budget !== savedBudget
 
@@ -43,7 +53,7 @@ export function PreferenceSliders({
         rightHint="Luxury"
       />
 
-      {/* Apply button */}
+      {/* Apply button — visible only when dirty */}
       <div className={cn('overflow-hidden transition-all duration-200', isDirty ? 'max-h-20 opacity-100' : 'max-h-0 opacity-0')}>
         <button
           onClick={() => onApply(pace, budget)}
