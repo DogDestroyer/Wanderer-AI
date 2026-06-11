@@ -1,7 +1,7 @@
 'use client'
 
-import { useEffect, useRef } from 'react'
-import { X, RotateCcw } from 'lucide-react'
+import { useState, useEffect, useRef } from 'react'
+import { X, RotateCcw, ChevronDown } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useStore } from '@/lib/store'
 import {
@@ -20,6 +20,23 @@ import {
   getDiningLabel,
 } from '@/lib/utils'
 
+// ─── Constants ────────────────────────────────────────────────────────────────
+
+const CURRENCIES = [
+  'SGD', 'USD', 'EUR', 'GBP', 'JPY', 'AUD', 'CAD', 'CHF',
+  'MYR', 'HKD', 'NZD', 'KRW', 'THB', 'IDR', 'INR', 'CNY',
+  'DKK', 'NOK', 'SEK', 'AED',
+]
+
+// Format a raw input string into a locale-style number with commas.
+// Strips all non-digit chars, parses, and re-formats. Returns "" for empty/zero.
+function formatAmount(raw: string): string {
+  const digits = raw.replace(/[^0-9]/g, '')
+  if (!digits) return ''
+  const n = parseInt(digits, 10)
+  return isNaN(n) ? '' : n.toLocaleString('en')
+}
+
 // ─── PreferencesPanel ─────────────────────────────────────────────────────────
 // Full preferences modal. Reads/writes draftPreferences (no active trip) or
 // trips[activeTripId].preferences (active trip) — one source of truth.
@@ -36,11 +53,45 @@ export function PreferencesPanel({ open, onClose }: PreferencesPanelProps) {
   const updateDraft  = useStore((s) => s.updateDraftPreferences)
   const updateTrip   = useStore((s) => s.updateTrip)
   const overlayRef   = useRef<HTMLDivElement>(null)
+  const customInputRef = useRef<HTMLInputElement>(null)
 
-  // Resolve current prefs and update handler
+  // ── Local state for exact budget input ──────────────────────────────────────
+  // These are kept in local state so formatting doesn't fight with the cursor.
+  // They sync from the store whenever the panel opens.
+  const [amountStr, setAmountStr]   = useState('')
+  const [currency, setCurrency]     = useState('SGD')
+  const [perPerson, setPerPerson]   = useState(false)
+
+  // ── Local state for custom interest inline input ─────────────────────────────
+  const [isAddingCustom, setIsAddingCustom] = useState(false)
+  const [customInput, setCustomInput]       = useState('')
+
+  // ── Resolve current prefs from store ────────────────────────────────────────
   const prefs: TripPreferences = activeTripId
     ? { ...DEFAULT_PREFERENCES, ...trips[activeTripId]?.preferences }
     : { ...DEFAULT_PREFERENCES, ...draft }
+
+  const hasExactBudget = !!(prefs.exactBudget?.amount && prefs.exactBudget.amount > 0)
+
+  // ── Sync local budget state when the panel opens ─────────────────────────────
+  // Intentionally omitting `prefs` from deps — re-init only on open so we don't
+  // interrupt the user while they are typing.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!open) return
+    setAmountStr(prefs.exactBudget?.amount ? prefs.exactBudget.amount.toLocaleString('en') : '')
+    setCurrency(prefs.exactBudget?.currency ?? 'SGD')
+    setPerPerson(prefs.exactBudget?.perPerson ?? false)
+    setIsAddingCustom(false)
+    setCustomInput('')
+  }, [open])
+
+  // Auto-focus the custom interest input when it appears
+  useEffect(() => {
+    if (isAddingCustom) customInputRef.current?.focus()
+  }, [isAddingCustom])
+
+  // ── Store write helpers ──────────────────────────────────────────────────────
 
   function update(patch: Partial<TripPreferences>) {
     if (activeTripId) {
@@ -51,6 +102,13 @@ export function PreferencesPanel({ open, onClose }: PreferencesPanelProps) {
   }
 
   function reset() {
+    // Clear local form state first
+    setAmountStr('')
+    setCurrency('SGD')
+    setPerPerson(false)
+    setIsAddingCustom(false)
+    setCustomInput('')
+    // Reset store — DEFAULT_PREFERENCES includes exactBudget: null, customInterests: []
     if (activeTripId) {
       updateTrip(activeTripId, { preferences: { ...DEFAULT_PREFERENCES } })
     } else {
@@ -58,12 +116,62 @@ export function PreferencesPanel({ open, onClose }: PreferencesPanelProps) {
     }
   }
 
-  // Close on overlay click
+  // ── Exact budget helpers ─────────────────────────────────────────────────────
+
+  function commitExactBudget(str: string, curr: string, pp: boolean) {
+    const raw = parseInt(str.replace(/,/g, ''), 10)
+    update({
+      exactBudget: (isNaN(raw) || raw <= 0) ? null : { amount: raw, currency: curr, perPerson: pp },
+    })
+  }
+
+  function handleAmountChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const formatted = formatAmount(e.target.value)
+    setAmountStr(formatted)
+    commitExactBudget(formatted, currency, perPerson)
+  }
+
+  // ── Custom interest helpers ──────────────────────────────────────────────────
+
+  function submitCustomInterest() {
+    const val = customInput.trim().toLowerCase()
+    if (!val) { cancelCustomInterest(); return }
+
+    // Dedup against built-ins and existing custom interests (case-insensitive)
+    const existing = [
+      ...INTEREST_OPTIONS.map((s) => s.toLowerCase()),
+      ...(prefs.customInterests ?? []).map((s) => s.toLowerCase()),
+    ]
+    if (existing.includes(val)) { cancelCustomInterest(); return }
+    if ((prefs.customInterests ?? []).length >= 8) { cancelCustomInterest(); return }
+
+    update({ customInterests: [...(prefs.customInterests ?? []), val] })
+    setCustomInput('')
+    setIsAddingCustom(false)
+  }
+
+  function cancelCustomInterest() {
+    setCustomInput('')
+    setIsAddingCustom(false)
+  }
+
+  function handleCustomKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      submitCustomInterest()
+    } else if (e.key === 'Escape') {
+      e.preventDefault()
+      e.stopPropagation() // prevent the panel-level Escape from also closing the panel
+      cancelCustomInterest()
+    }
+  }
+
+  // ── Overlay & keyboard handlers ─────────────────────────────────────────────
+
   function handleOverlayClick(e: React.MouseEvent) {
     if (e.target === overlayRef.current) onClose()
   }
 
-  // Close on Escape
   useEffect(() => {
     function handler(e: KeyboardEvent) {
       if (e.key === 'Escape') onClose()
@@ -71,6 +179,8 @@ export function PreferencesPanel({ open, onClose }: PreferencesPanelProps) {
     if (open) document.addEventListener('keydown', handler)
     return () => document.removeEventListener('keydown', handler)
   }, [open, onClose])
+
+  // ── Render ──────────────────────────────────────────────────────────────────
 
   return (
     <AnimatePresence>
@@ -114,16 +224,117 @@ export function PreferencesPanel({ open, onClose }: PreferencesPanelProps) {
             {/* Scrollable body */}
             <div className="overflow-y-auto max-h-[70vh] p-5 space-y-6">
 
-              {/* ── Core 3 sliders ─────────────────────────────────────────── */}
+              {/* ── Planning style ─────────────────────────────────────────────── */}
               <Section title="Planning style">
-                <PanelSlider
-                  label="Budget"
-                  valueLabel={getBudgetLabel(prefs.budgetLevel)}
-                  value={prefs.budgetLevel}
-                  leftHint="Shoestring"
-                  rightHint="Luxury"
-                  onChange={(v) => update({ budgetLevel: v })}
-                />
+
+                {/* Budget slider + exact budget override */}
+                <div className="mb-4">
+                  {/* Slider — de-emphasised when an exact budget is active */}
+                  <div className={cn(
+                    'transition-opacity duration-200',
+                    hasExactBudget && 'opacity-40 pointer-events-none select-none',
+                  )}>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="text-[12px] font-medium text-[#888]">Budget</span>
+                      <span className="text-[12px] font-semibold text-[#f0f0f0]">
+                        {getBudgetLabel(prefs.budgetLevel)}
+                      </span>
+                    </div>
+                    <input
+                      type="range"
+                      min={0} max={100} step={5}
+                      value={prefs.budgetLevel}
+                      onChange={(e) => update({ budgetLevel: Number(e.target.value) })}
+                      className="w-full cursor-pointer"
+                      style={{ accentColor: '#ffffff', height: '3px' }}
+                    />
+                    <div className="flex justify-between mt-0.5">
+                      <span className="text-[10px] text-[#333]">Shoestring</span>
+                      <span className="text-[10px] text-[#333]">Luxury</span>
+                    </div>
+                  </div>
+
+                  {/* Exact budget row */}
+                  <div className="mt-3">
+                    <p className="text-[10px] text-[#444] mb-1.5">Exact budget (optional)</p>
+                    <div className="flex items-center gap-2 flex-wrap">
+
+                      {/* Amount input */}
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        value={amountStr}
+                        onChange={handleAmountChange}
+                        placeholder="e.g. 4,500"
+                        className={cn(
+                          'w-[100px] bg-[#0d0d0d] border border-[#2a2a2a] rounded-lg',
+                          'px-2.5 py-1.5 text-[12px] text-[#f0f0f0] placeholder:text-[#333]',
+                          'focus:outline-none focus:border-[#444] transition-colors',
+                        )}
+                      />
+
+                      {/* Currency selector */}
+                      <div className="relative">
+                        <select
+                          value={currency}
+                          onChange={(e) => {
+                            setCurrency(e.target.value)
+                            commitExactBudget(amountStr, e.target.value, perPerson)
+                          }}
+                          className={cn(
+                            'appearance-none bg-[#0d0d0d] border border-[#2a2a2a] rounded-lg',
+                            'pl-2.5 pr-7 py-1.5 text-[12px] text-[#f0f0f0]',
+                            'focus:outline-none focus:border-[#444] cursor-pointer transition-colors',
+                          )}
+                        >
+                          {CURRENCIES.map((c) => (
+                            <option key={c} value={c}>{c}</option>
+                          ))}
+                        </select>
+                        <ChevronDown
+                          size={10}
+                          className="absolute right-2 top-1/2 -translate-y-1/2 text-[#555] pointer-events-none"
+                        />
+                      </div>
+
+                      {/* Total / Per person toggle */}
+                      <div className="flex rounded-lg border border-[#2a2a2a] overflow-hidden">
+                        <button
+                          type="button"
+                          onClick={() => { setPerPerson(false); commitExactBudget(amountStr, currency, false) }}
+                          className={cn(
+                            'px-2.5 py-1.5 text-[11px] font-medium transition-colors',
+                            !perPerson ? 'bg-[#2a2a2a] text-[#f0f0f0]' : 'text-[#555] hover:text-[#888]',
+                          )}
+                        >
+                          Total
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => { setPerPerson(true); commitExactBudget(amountStr, currency, true) }}
+                          className={cn(
+                            'px-2.5 py-1.5 text-[11px] font-medium transition-colors border-l border-[#2a2a2a]',
+                            perPerson ? 'bg-[#2a2a2a] text-[#f0f0f0]' : 'text-[#555] hover:text-[#888]',
+                          )}
+                        >
+                          Per person
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Mode caption */}
+                    {hasExactBudget ? (
+                      <p className="text-[10px] text-[#555] mt-1.5">
+                        Using exact budget — slider is for reference only
+                      </p>
+                    ) : (
+                      <p className="text-[10px] text-[#333] mt-1.5">
+                        Leave blank to use the slider above
+                      </p>
+                    )}
+                  </div>
+                </div>
+
                 <PanelSlider
                   label="Pace"
                   valueLabel={getPaceLabel(prefs.paceLevel)}
@@ -142,9 +353,11 @@ export function PreferencesPanel({ open, onClose }: PreferencesPanelProps) {
                 />
               </Section>
 
-              {/* ── Interests ─────────────────────────────────────────────── */}
+              {/* ── Interests ──────────────────────────────────────────────────── */}
               <Section title="Interests">
                 <div className="flex flex-wrap gap-2">
+
+                  {/* Built-in interest chips */}
                   {INTEREST_OPTIONS.map((interest) => {
                     const active = prefs.interests.includes(interest)
                     return (
@@ -161,20 +374,70 @@ export function PreferencesPanel({ open, onClose }: PreferencesPanelProps) {
                           'px-3 py-1.5 rounded-full text-[12px] font-medium border transition-all',
                           active
                             ? 'bg-white text-black border-white'
-                            : 'bg-transparent text-[#666] border-[#2a2a2a] hover:border-[#444] hover:text-[#f0f0f0]'
+                            : 'bg-transparent text-[#666] border-[#2a2a2a] hover:border-[#444] hover:text-[#f0f0f0]',
                         )}
                       >
                         {interest}
                       </button>
                     )
                   })}
+
+                  {/* Custom interest chips — always selected; click × to remove */}
+                  {(prefs.customInterests ?? []).map((interest) => (
+                    <button
+                      key={`custom-${interest}`}
+                      onClick={() =>
+                        update({
+                          customInterests: (prefs.customInterests ?? []).filter((i) => i !== interest),
+                        })
+                      }
+                      title={`Remove "${interest}"`}
+                      className="group flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[12px] font-medium border bg-white text-black border-white transition-all"
+                    >
+                      <span>{interest}</span>
+                      <X
+                        size={10}
+                        className="opacity-0 group-hover:opacity-60 transition-opacity flex-shrink-0"
+                      />
+                    </button>
+                  ))}
+
+                  {/* Inline "Add custom interest" input or trigger chip */}
+                  {isAddingCustom ? (
+                    <input
+                      ref={customInputRef}
+                      type="text"
+                      value={customInput}
+                      onChange={(e) => setCustomInput(e.target.value.slice(0, 20))}
+                      onKeyDown={handleCustomKeyDown}
+                      onBlur={cancelCustomInterest}
+                      placeholder="e.g. onsen"
+                      className={cn(
+                        'px-3 py-1.5 rounded-full text-[12px] text-[#f0f0f0]',
+                        'border border-[#444] bg-[#1a1a1a] focus:outline-none',
+                        'w-[120px] placeholder:text-[#444]',
+                      )}
+                    />
+                  ) : (
+                    // Only show the "+ Add" chip if we're under the 8-custom limit
+                    (prefs.customInterests ?? []).length < 8 && (
+                      <button
+                        onClick={() => setIsAddingCustom(true)}
+                        className={cn(
+                          'px-3 py-1.5 rounded-full text-[12px] font-medium border transition-all',
+                          'border-dashed border-[#2a2a2a] text-[#444] hover:border-[#555] hover:text-[#666]',
+                        )}
+                      >
+                        + Add
+                      </button>
+                    )
+                  )}
                 </div>
               </Section>
 
-              {/* ── Party ──────────────────────────────────────────────────── */}
+              {/* ── Party ────────────────────────────────────────────────────────── */}
               <Section title="Party">
                 <div className="flex items-center gap-4">
-                  {/* Size */}
                   <div className="flex items-center gap-2">
                     <button
                       onClick={() => update({ partySize: Math.max(1, (prefs.partySize ?? 2) - 1) })}
@@ -190,7 +453,6 @@ export function PreferencesPanel({ open, onClose }: PreferencesPanelProps) {
                     <span className="text-[11px] text-[#555] ml-1">people</span>
                   </div>
                   <div className="h-3 w-px bg-[#2a2a2a]" />
-                  {/* Type chips */}
                   {(['solo', 'couple', 'family', 'friends'] as PartyType[]).map((t) => (
                     <button
                       key={t}
@@ -199,7 +461,7 @@ export function PreferencesPanel({ open, onClose }: PreferencesPanelProps) {
                         'px-2.5 py-1 rounded-lg text-[11px] font-medium border transition-all capitalize',
                         (prefs.partyType ?? 'couple') === t
                           ? 'bg-white text-black border-white'
-                          : 'text-[#666] border-[#2a2a2a] hover:border-[#444] hover:text-[#f0f0f0]'
+                          : 'text-[#666] border-[#2a2a2a] hover:border-[#444] hover:text-[#f0f0f0]',
                       )}
                     >
                       {t}
@@ -208,7 +470,7 @@ export function PreferencesPanel({ open, onClose }: PreferencesPanelProps) {
                 </div>
               </Section>
 
-              {/* ── Dining & Accommodation ─────────────────────────────────── */}
+              {/* ── Dining & Accommodation ───────────────────────────────────────── */}
               <Section title="Dining & accommodation">
                 <PanelSlider
                   label="Dining style"
@@ -229,7 +491,7 @@ export function PreferencesPanel({ open, onClose }: PreferencesPanelProps) {
                           'px-3 py-1.5 rounded-full text-[12px] font-medium border transition-all capitalize',
                           (prefs.accommodation ?? 'mid-range') === a
                             ? 'bg-white text-black border-white'
-                            : 'text-[#666] border-[#2a2a2a] hover:border-[#444] hover:text-[#f0f0f0]'
+                            : 'text-[#666] border-[#2a2a2a] hover:border-[#444] hover:text-[#f0f0f0]',
                         )}
                       >
                         {a === 'mid-range' ? 'Mid-range hotel' : a}
@@ -239,7 +501,7 @@ export function PreferencesPanel({ open, onClose }: PreferencesPanelProps) {
                 </div>
               </Section>
 
-              {/* ── Mobility ───────────────────────────────────────────────── */}
+              {/* ── Mobility ─────────────────────────────────────────────────────── */}
               <Section title="Mobility">
                 {(['full', 'limited'] as MobilityType[]).map((m) => (
                   <button
@@ -249,7 +511,7 @@ export function PreferencesPanel({ open, onClose }: PreferencesPanelProps) {
                       'w-full flex items-start gap-3 px-3.5 py-2.5 rounded-xl border transition-all text-left mb-2 last:mb-0',
                       (prefs.mobility ?? 'full') === m
                         ? 'bg-white/5 border-white/30 text-[#f0f0f0]'
-                        : 'border-[#2a2a2a] text-[#666] hover:border-[#444] hover:text-[#888]'
+                        : 'border-[#2a2a2a] text-[#666] hover:border-[#444] hover:text-[#888]',
                     )}
                   >
                     <span className="text-[13px] font-medium capitalize leading-tight">
@@ -259,7 +521,7 @@ export function PreferencesPanel({ open, onClose }: PreferencesPanelProps) {
                 ))}
               </Section>
 
-              {/* ── Must avoid ─────────────────────────────────────────────── */}
+              {/* ── Must avoid ───────────────────────────────────────────────────── */}
               <Section title="Must avoid">
                 <textarea
                   value={prefs.mustAvoid ?? ''}
@@ -269,7 +531,7 @@ export function PreferencesPanel({ open, onClose }: PreferencesPanelProps) {
                   className={cn(
                     'w-full bg-[#0d0d0d] border border-[#2a2a2a] rounded-xl px-3.5 py-2.5',
                     'text-[12px] text-[#f0f0f0] placeholder:text-[#333] leading-relaxed resize-none',
-                    'focus:outline-none focus:border-[#444] transition-colors'
+                    'focus:outline-none focus:border-[#444] transition-colors',
                   )}
                 />
               </Section>

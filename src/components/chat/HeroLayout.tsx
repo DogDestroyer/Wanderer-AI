@@ -28,8 +28,8 @@ export function HeroLayout() {
   const [showPrefsPanel, setShowPrefsPanel] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
-  const prefs          = useStore((s) => s.draftPreferences)
-  const updateDraft    = useStore((s) => s.updateDraftPreferences)
+  const prefs       = useStore((s) => s.draftPreferences)
+  const updateDraft = useStore((s) => s.updateDraftPreferences)
   const { sendMessage, isGenerating } = useChatSend()
 
   // Focus on mount
@@ -96,72 +96,86 @@ export function HeroLayout() {
   }
 
   return (
-    <div className="flex flex-col items-center justify-center h-full px-6 bg-[#0a0a0a]">
+    /*
+     * Optical centering strategy:
+     *   Desktop (md+): justify-center + pb-[12dvh] shifts the content block
+     *     above true geometric centre — input lands at ≈ 43–45% of viewport height.
+     *   Mobile (<768px): justify-start + pt-8 (32px) positions the block near the
+     *     top so the on-screen keyboard cannot cover the input.
+     *
+     * overflow-y-auto lets the content scroll on very small screens rather than
+     * being clipped by the parent's overflow-hidden.
+     */
+    <div className={cn(
+      'flex flex-col items-center w-full h-full overflow-y-auto bg-[#0a0a0a]',
+      'px-5 pt-8',
+      'md:px-0 md:pt-0 md:justify-center md:pb-[12dvh]',
+    )}>
+
+      {/*
+       * Single animated container wrapping ALL hero content — headline, sliders,
+       * input, hint, features — so the entrance is one cohesive fade + rise.
+       * Max-width 760px to accommodate the wider feature grid below.
+       */}
       <motion.div
-        className="w-full max-w-[560px]"
+        className="w-full max-w-[760px] flex flex-col items-center"
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.5, ease: EASE }}
       >
 
-        {/* Headline */}
-        <motion.h1
-          className="text-center text-[28px] font-bold text-[#f0f0f0] mb-6 tracking-tight"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ delay: 0.05, duration: 0.4 }}
-        >
-          Where to next?
-        </motion.h1>
+        {/* ── 680px core: headline · sliders · input · hint ─────────────────── */}
+        <div className="w-full max-w-[680px]">
 
-        {/* ── Compact preferences bar ───────────────────────────────────────── */}
-        <motion.div
-          className="flex items-start gap-2 mb-3"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ delay: 0.12, duration: 0.4 }}
-        >
-          {/* 3 inline sliders */}
-          <div className="flex-1 grid grid-cols-3 gap-3">
-            <CompactSlider
-              label="Budget"
-              value={prefs.budgetLevel}
-              valueLabel={getBudgetLabel(prefs.budgetLevel)}
-              onChange={(v) => updateDraft({ budgetLevel: v })}
-            />
-            <CompactSlider
-              label="Pace"
-              value={prefs.paceLevel}
-              valueLabel={getPaceLabel(prefs.paceLevel)}
-              onChange={(v) => updateDraft({ paceLevel: v })}
-            />
-            <CompactSlider
-              label="Style"
-              value={prefs.tripStyle ?? 50}
-              valueLabel={getTripStyleLabel(prefs.tripStyle ?? 50)}
-              onChange={(v) => updateDraft({ tripStyle: v })}
-            />
+          {/* Headline — 56px desktop / 36px mobile */}
+          <h1 className="text-center text-[36px] md:text-[56px] font-semibold text-[#f0f0f0] mb-10 tracking-[-0.02em]">
+            Where to next?
+          </h1>
+
+          {/* ── Compact preferences bar ─────────────────────────────────────── */}
+          {/* mb-6 = 24px gap between sliders row and input (spec) */}
+          <div className="flex items-start gap-2 mb-6">
+
+            {/* 3 sliders — 3-col grid on desktop, 2-col wrap on mobile */}
+            <div className="flex-1 grid grid-cols-2 md:grid-cols-3 gap-3">
+              <CompactSlider
+                label="Budget"
+                value={prefs.budgetLevel}
+                valueLabel={getBudgetLabel(prefs.budgetLevel)}
+                onChange={(v) => updateDraft({ budgetLevel: v })}
+              />
+              <CompactSlider
+                label="Pace"
+                value={prefs.paceLevel}
+                valueLabel={getPaceLabel(prefs.paceLevel)}
+                onChange={(v) => updateDraft({ paceLevel: v })}
+              />
+              {/* Style spans full width on mobile (col-span-2) to avoid orphan cell */}
+              <CompactSlider
+                label="Style"
+                value={prefs.tripStyle ?? 50}
+                valueLabel={getTripStyleLabel(prefs.tripStyle ?? 50)}
+                onChange={(v) => updateDraft({ tripStyle: v })}
+                className="col-span-2 md:col-span-1"
+              />
+            </div>
+
+            {/* Expand-options icon — pinned to right edge of the sliders row */}
+            <button
+              onClick={() => setShowPrefsPanel(true)}
+              title="All preferences"
+              className={cn(
+                'flex-shrink-0 w-[38px] h-[38px] mt-[14px] rounded-xl',
+                'flex items-center justify-center border transition-colors',
+                'bg-[#111111] border-[#2a2a2a] text-[#555] hover:text-[#f0f0f0] hover:border-[#444]',
+              )}
+            >
+              <SlidersHorizontal size={13} />
+            </button>
           </div>
 
-          {/* Expand button */}
-          <button
-            onClick={() => setShowPrefsPanel(true)}
-            title="All preferences"
-            className={cn(
-              'flex-shrink-0 w-[38px] h-[38px] mt-[14px] rounded-xl flex items-center justify-center border transition-colors',
-              'bg-[#111111] border-[#2a2a2a] text-[#555] hover:text-[#f0f0f0] hover:border-[#444]'
-            )}
-          >
-            <SlidersHorizontal size={13} />
-          </button>
-        </motion.div>
-
-        {/* ── Input area ────────────────────────────────────────────────────── */}
-        <motion.div
-          initial={{ opacity: 0, y: 8 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.18, duration: 0.4, ease: EASE }}
-        >
+          {/* ── Input row ─────────────────────────────────────────────────────── */}
+          {/* items-end so buttons sit flush with the textarea baseline */}
           <div className="flex items-end gap-2">
             <textarea
               ref={textareaRef}
@@ -173,38 +187,38 @@ export function HeroLayout() {
               disabled={isGenerating}
               className={cn(
                 'flex-1 resize-none rounded-2xl border border-[#2a2a2a] bg-[#111111]',
-                'px-4 py-3 text-[14px] text-[#f0f0f0] placeholder:text-[#444] leading-relaxed',
+                'px-5 py-[18px] text-[17px] text-[#f0f0f0] placeholder:text-[#444] leading-snug',
                 'focus:outline-none focus:border-[#444] transition-all overflow-hidden',
-                'disabled:opacity-40'
+                'disabled:opacity-40',
               )}
-              style={{ minHeight: '50px', maxHeight: '160px' }}
+              style={{ minHeight: '60px', maxHeight: '160px' }}
             />
 
-            {/* Enhance */}
+            {/* Enhance button — same height as resting textarea */}
             <button
               type="button"
               onClick={handleEnhance}
               disabled={!input.trim() || isGenerating || isEnhancing}
               title="Enhance prompt"
               className={cn(
-                'flex-shrink-0 w-12 h-12 rounded-2xl flex items-center justify-center border transition-colors',
+                'flex-shrink-0 w-12 h-[60px] rounded-2xl flex items-center justify-center border transition-colors',
                 'bg-[#111111] border-[#2a2a2a] text-[#555]',
                 'hover:border-[#444] hover:text-[#f0f0f0]',
-                'disabled:opacity-30 disabled:cursor-not-allowed'
+                'disabled:opacity-30 disabled:cursor-not-allowed',
               )}
             >
               {isEnhancing ? <Loader2 size={14} className="animate-spin" /> : <Wand2 size={14} />}
             </button>
 
-            {/* Send */}
+            {/* Send button — same height as resting textarea */}
             <button
               type="button"
               onClick={submit}
               disabled={!input.trim() || isGenerating}
               className={cn(
-                'flex-shrink-0 w-12 h-12 rounded-2xl flex items-center justify-center transition-colors',
+                'flex-shrink-0 w-12 h-[60px] rounded-2xl flex items-center justify-center transition-colors',
                 'bg-white text-black hover:bg-[#e8e8e8] active:bg-[#d0d0d0]',
-                'disabled:bg-[#1a1a1a] disabled:text-[#444]'
+                'disabled:bg-[#1a1a1a] disabled:text-[#444]',
               )}
             >
               {isGenerating
@@ -214,45 +228,38 @@ export function HeroLayout() {
             </button>
           </div>
 
-          <p className="text-[10px] text-[#333] mt-1.5 text-center">
+          {/* Hint text — 12px, 12px below input */}
+          <p className="text-[12px] text-[#333] mt-3 text-center">
             Enter to send · Shift+Enter for new line · <span className="text-[#3a3a3a]">✦ wand to enhance</span>
           </p>
-        </motion.div>
 
-        {/* ── Generating indicator ─────────────────────────────────────────── */}
-        {isGenerating && (
-          <motion.div
-            className="mt-5 flex items-center justify-center gap-2 text-[#555]"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-          >
-            <div className="flex gap-1">
-              <span className="w-1 h-1 bg-[#555] rounded-full animate-bounce [animation-delay:0ms]" />
-              <span className="w-1 h-1 bg-[#555] rounded-full animate-bounce [animation-delay:150ms]" />
-              <span className="w-1 h-1 bg-[#555] rounded-full animate-bounce [animation-delay:300ms]" />
+          {/* Generating indicator (replaces feature strip while streaming) */}
+          {isGenerating && (
+            <div className="mt-5 flex items-center justify-center gap-2 text-[#555]">
+              <div className="flex gap-1">
+                <span className="w-1 h-1 bg-[#555] rounded-full animate-bounce [animation-delay:0ms]" />
+                <span className="w-1 h-1 bg-[#555] rounded-full animate-bounce [animation-delay:150ms]" />
+                <span className="w-1 h-1 bg-[#555] rounded-full animate-bounce [animation-delay:300ms]" />
+              </div>
+              <span className="text-[12px]">Building your itinerary…</span>
             </div>
-            <span className="text-[12px]">Building your itinerary…</span>
-          </motion.div>
-        )}
+          )}
+        </div>
 
-        {/* ── Feature strip ─────────────────────────────────────────────────── */}
+        {/* ── Feature pointers — 760px wide, 48px below hint text ────────────── */}
+        {/* 3×2 grid desktop / 2×3 grid mobile */}
         {!isGenerating && (
-          <motion.div
-            className="mt-8"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ delay: 0.3, duration: 0.5 }}
-          >
-            <div className="h-px bg-[#1a1a1a] mb-5" />
-            <div className="grid grid-cols-3 gap-x-6 gap-y-3">
+          <div className="w-full mt-12">
+            <div className="h-px bg-[#1a1a1a] mb-8" />
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-x-8 gap-y-6">
               {FEATURES.map(({ label, desc }) => (
-                <div key={label}>
-                  <p className="text-[11px] font-semibold text-[#555] mb-0.5">{label}</p>
-                  <p className="text-[10px] text-[#333] leading-relaxed">{desc}</p>
+                <div key={label} className="text-left">
+                  <p className="text-[14px] font-medium text-[#555] mb-1">{label}</p>
+                  <p className="text-[13px] text-[#333] leading-relaxed">{desc}</p>
                 </div>
               ))}
             </div>
-          </motion.div>
+          </div>
         )}
       </motion.div>
 
@@ -265,18 +272,19 @@ export function HeroLayout() {
 // ─── CompactSlider ────────────────────────────────────────────────────────────
 
 function CompactSlider({
-  label, value, valueLabel, onChange,
+  label, value, valueLabel, onChange, className,
 }: {
   label: string
   value: number
   valueLabel: string
   onChange: (v: number) => void
+  className?: string
 }) {
   return (
-    <div>
+    <div className={className}>
       <div className="flex items-center justify-between mb-1">
-        <span className="text-[10px] font-medium text-[#444]">{label}</span>
-        <span className="text-[10px] font-semibold text-[#666] tabular-nums leading-none">{valueLabel}</span>
+        <span className="text-[13px] font-medium text-[#444]">{label}</span>
+        <span className="text-[13px] font-semibold text-[#666] tabular-nums leading-none">{valueLabel}</span>
       </div>
       <input
         type="range"

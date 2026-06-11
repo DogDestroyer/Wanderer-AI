@@ -161,16 +161,35 @@ function buildPreferencesPrompt(prefs: TripPreferences | null | undefined): stri
     '',
     'These preferences were set by the user before writing their message. HONOUR them when planning — they are the user\'s baseline intent.',
     '',
-    `- Budget style: ${getBudgetLabel(prefs.budgetLevel)} (${prefs.budgetLevel}/100, 0=shoestring, 100=luxury)`,
-    `- Pace: ${getPaceLabel(prefs.paceLevel)} (${prefs.paceLevel}/100, 0=very relaxed, 100=jam-packed)`,
   ]
+
+  // ── Budget: exact amount takes precedence over the slider ─────────────────
+  if (prefs.exactBudget?.amount && prefs.exactBudget.amount > 0) {
+    const { amount, currency, perPerson } = prefs.exactBudget
+    const scopeLabel = perPerson ? 'per person' : 'for the whole trip'
+    const formattedAmount = amount.toLocaleString('en')
+    lines.push(
+      `- EXACT BUDGET — hard constraint: ${currency} ${formattedAmount} ${scopeLabel}`,
+      `  This overrides the budget-style slider. The itinerary's estimated costs MUST stay within`,
+      `  this limit. In your conversational reply, include one sentence tracking the plan against`,
+      `  the budget, e.g. "Estimated total ${currency} X,XXX of your ${formattedAmount} budget."`,
+    )
+  } else {
+    lines.push(`- Budget style: ${getBudgetLabel(prefs.budgetLevel)} (${prefs.budgetLevel}/100, 0=shoestring, 100=luxury)`)
+  }
+
+  lines.push(`- Pace: ${getPaceLabel(prefs.paceLevel)} (${prefs.paceLevel}/100, 0=very relaxed, 100=jam-packed)`)
 
   if (prefs.tripStyle !== undefined) {
     lines.push(`- Trip style: ${getTripStyleLabel(prefs.tripStyle)} (${prefs.tripStyle}/100, 0=pure nature, 100=pure city)`)
   }
-  if (prefs.interests?.length) {
-    lines.push(`- Interests: ${prefs.interests.join(', ')} — weight the itinerary toward these`)
+
+  // ── Interests: built-in selections + custom tags ──────────────────────────
+  const allInterests = [...(prefs.interests ?? []), ...(prefs.customInterests ?? [])]
+  if (allInterests.length) {
+    lines.push(`- Interests: ${allInterests.join(', ')} — weight the itinerary toward these`)
   }
+
   if (prefs.partySize && prefs.partyType) {
     lines.push(`- Party: ${prefs.partySize} ${prefs.partySize === 1 ? 'person' : 'people'}, ${prefs.partyType}`)
   }

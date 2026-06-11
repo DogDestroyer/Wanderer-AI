@@ -85,19 +85,28 @@ export const INTEREST_OPTIONS = [
   'food', 'nature', 'shopping', 'history', 'nightlife', 'art', 'adventure',
 ] as const
 
+/** An exact monetary budget entered by the user — overrides the budgetLevel slider. */
+export interface ExactBudget {
+  amount: number      // positive integer
+  currency: string    // ISO 4217 code, e.g. "SGD"
+  perPerson: boolean  // false = total trip, true = per person
+}
+
 export interface TripPreferences {
   // Core — always present
   paceLevel: number    // 0–100: 0 = very relaxed, 100 = packed
   budgetLevel: number  // 0–100: 0 = shoestring, 100 = luxury
-  interests: string[]  // e.g. ["history", "food", "hiking"]
+  interests: string[]  // selected built-in interest tags
   // Extended — optional for backward compat with persisted trips
-  tripStyle?: number          // 0–100: 0 = nature-focused, 100 = city-focused
-  partySize?: number          // 1–10
+  tripStyle?: number              // 0–100: 0 = nature-focused, 100 = city-focused
+  partySize?: number              // 1–10
   partyType?: PartyType
-  diningStyle?: number        // 0–100: 0 = street food, 100 = fine dining
+  diningStyle?: number            // 0–100: 0 = street food, 100 = fine dining
   accommodation?: AccommodationType
-  mobility?: MobilityType     // 'full' = walking OK, 'limited' = minimise walking
-  mustAvoid?: string          // free-text hard constraints
+  mobility?: MobilityType         // 'full' = walking OK, 'limited' = minimise walking
+  mustAvoid?: string              // free-text hard constraints
+  exactBudget?: ExactBudget | null  // when set, overrides budgetLevel as a hard cap
+  customInterests?: string[]      // user-added interest tags beyond INTEREST_OPTIONS
 }
 
 export const DEFAULT_PREFERENCES: TripPreferences = {
@@ -111,6 +120,8 @@ export const DEFAULT_PREFERENCES: TripPreferences = {
   accommodation: 'mid-range',
   mobility: 'full',
   mustAvoid: '',
+  exactBudget: null,
+  customInterests: [],
 }
 
 export type SuggestionType =
