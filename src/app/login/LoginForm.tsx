@@ -8,7 +8,7 @@ import { cn } from '@/lib/utils'
 export function LoginForm() {
   const router = useRouter()
   const searchParams = useSearchParams()
-  const from = searchParams.get('from') ?? '/'
+  const from = searchParams.get('from') ?? '/app'
 
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')

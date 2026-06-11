@@ -12,8 +12,8 @@ export function proxy(request: NextRequest) {
 
   const { pathname } = request.nextUrl
 
-  // Always allow login page and its auth API
-  if (pathname === '/login' || pathname.startsWith('/api/auth')) {
+  // Always allow: landing page, login page, auth API
+  if (pathname === '/' || pathname === '/login' || pathname.startsWith('/api/auth')) {
     return NextResponse.next()
   }
 

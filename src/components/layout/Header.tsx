@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useRef, useEffect } from 'react'
+import Link from 'next/link'
 import { ChevronDown, Plus, Trash2, MessageSquare, X } from 'lucide-react'
 import { useStore } from '@/lib/store'
 import { cn, formatNights } from '@/lib/utils'
@@ -51,10 +52,13 @@ export function Header({ chatOpen, onToggleChat }: HeaderProps) {
   return (
     <header className="sticky top-0 z-40 flex h-14 items-center gap-4 border-b border-[#1f1f1f] bg-[#0a0a0a] px-5">
 
-      {/* HODO wordmark */}
-      <span className="text-[13px] font-bold text-white tracking-[0.22em] uppercase select-none">
+      {/* HODO wordmark — links to landing page */}
+      <Link
+        href="/"
+        className="text-[13px] font-bold text-white tracking-[0.22em] uppercase select-none opacity-100 hover:opacity-60 transition-opacity duration-150"
+      >
         HODO
-      </span>
+      </Link>
 
       {/* Thin divider */}
       <div className="w-px h-4 bg-[#2a2a2a] shrink-0" />
