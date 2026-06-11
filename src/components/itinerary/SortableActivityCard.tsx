@@ -45,8 +45,8 @@ export function SortableActivityCard({
 
       <div
         className={cn(
-          'relative group/sortable',
-          isDragging && 'opacity-30'
+          'relative group/sortable transition-transform duration-150',
+          isDragging ? 'opacity-30' : 'hover:-translate-y-0.5 hover:shadow-sm'
         )}
       >
         {/* Drag handle — floats over the left padding, visible on card hover */}

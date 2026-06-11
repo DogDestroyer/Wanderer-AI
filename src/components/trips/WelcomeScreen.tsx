@@ -1,6 +1,7 @@
 'use client'
 
 import { Plane, Map, DollarSign, GripVertical, CloudSun, Sparkles } from 'lucide-react'
+import { motion } from 'framer-motion'
 
 const features = [
   {
@@ -41,14 +42,56 @@ const features = [
   },
 ]
 
+// ─── Animation variants ───────────────────────────────────────────────────────
+
+const EASE = [0.16, 1, 0.3, 1] as [number, number, number, number]
+
+const heroVariants = {
+  hidden: { opacity: 0, y: 24 },
+  show: {
+    opacity: 1,
+    y: 0,
+    transition: { duration: 0.5, ease: EASE },
+  },
+}
+
+const gridVariants = {
+  hidden: {},
+  show: {
+    transition: { staggerChildren: 0.07, delayChildren: 0.25 },
+  },
+}
+
+const cardVariants = {
+  hidden: { opacity: 0, y: 18, scale: 0.97 },
+  show: {
+    opacity: 1,
+    y: 0,
+    scale: 1,
+    transition: { duration: 0.38, ease: EASE },
+  },
+}
+
+// ─── WelcomeScreen ────────────────────────────────────────────────────────────
+
 export function WelcomeScreen() {
   return (
     <div className="flex flex-col items-center justify-start min-h-full px-6 py-16 bg-gradient-to-b from-slate-50 to-white">
       {/* Hero */}
-      <div className="flex flex-col items-center text-center max-w-xl mb-14">
-        <div className="mb-6 flex items-center justify-center w-16 h-16 rounded-2xl bg-indigo-600 shadow-lg shadow-indigo-200">
+      <motion.div
+        className="flex flex-col items-center text-center max-w-xl mb-14"
+        initial="hidden"
+        animate="show"
+        variants={heroVariants}
+      >
+        <motion.div
+          className="mb-6 flex items-center justify-center w-16 h-16 rounded-2xl bg-indigo-600 shadow-lg shadow-indigo-200"
+          initial={{ scale: 0.7, opacity: 0, rotate: -10 }}
+          animate={{ scale: 1, opacity: 1, rotate: 0 }}
+          transition={{ duration: 0.55, ease: [0.16, 1, 0.3, 1] }}
+        >
           <Plane size={28} className="text-white -rotate-45" />
-        </div>
+        </motion.div>
         <h1 className="text-4xl sm:text-5xl font-bold text-gray-900 tracking-tight leading-tight mb-4">
           Plan trips that<br />
           <span className="text-indigo-600">adapt to you.</span>
@@ -68,14 +111,20 @@ export function WelcomeScreen() {
         <p className="mt-3 text-xs text-gray-400">
           Takes about 30 seconds to get a full itinerary
         </p>
-      </div>
+      </motion.div>
 
       {/* Feature grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 w-full max-w-3xl">
+      <motion.div
+        className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 w-full max-w-3xl"
+        initial="hidden"
+        animate="show"
+        variants={gridVariants}
+      >
         {features.map(({ icon: Icon, title, desc, color }) => (
-          <div
+          <motion.div
             key={title}
-            className="flex items-start gap-3 p-4 rounded-xl bg-white border border-gray-100 shadow-sm hover:shadow-md transition-shadow"
+            variants={cardVariants}
+            className="flex items-start gap-3 p-4 rounded-xl bg-white border border-gray-100 shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all duration-200"
           >
             <div className={`flex-shrink-0 w-9 h-9 rounded-lg flex items-center justify-center ${color}`}>
               <Icon size={17} />
@@ -84,9 +133,9 @@ export function WelcomeScreen() {
               <p className="text-sm font-semibold text-gray-800">{title}</p>
               <p className="text-xs text-gray-500 mt-0.5 leading-relaxed">{desc}</p>
             </div>
-          </div>
+          </motion.div>
         ))}
-      </div>
+      </motion.div>
     </div>
   )
 }

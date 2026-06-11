@@ -2,6 +2,7 @@
 
 import { useStore } from '@/lib/store'
 import { useWeather } from '@/hooks/useWeather'
+import { ToastContainer } from '@/components/ui/Toast'
 import { Header } from './Header'
 import { Sidebar } from './Sidebar'
 import { WelcomeScreen } from '@/components/trips/WelcomeScreen'
@@ -34,6 +35,7 @@ export function AppShell() {
 
   return (
     <div className="flex flex-col h-screen bg-gray-50 overflow-hidden">
+      <ToastContainer />
       <Header />
 
       <div className="flex flex-1 overflow-hidden">

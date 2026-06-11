@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback, type ReactNode } from 'react'
+import { motion } from 'framer-motion'
 import {
   DndContext,
   DragOverlay,
@@ -31,6 +32,7 @@ import { ActivityCard } from './ActivityCard'
 import { BudgetPanel } from './BudgetPanel'
 import { MapPanel } from '@/components/map/MapPanel'
 import { PreferenceSliders } from '@/components/preferences/PreferenceSliders'
+import { showToast } from '@/components/ui/Toast'
 
 interface ItineraryViewProps {
   trip: TripPlan
@@ -199,6 +201,7 @@ export function ItineraryView({ trip }: ItineraryViewProps) {
     document.dispatchEvent(
       new CustomEvent('wandr:send-message', { detail: { message: msg } })
     )
+    showToast({ message: 'Re-planning with new preferences…', type: 'info' })
   }
 
   // ── Budget ───────────────────────────────────────────────────────────────────
@@ -340,12 +343,13 @@ export function ItineraryView({ trip }: ItineraryViewProps) {
 
       {/* ── Day list ──────────────────────────────────────────────────────────── */}
       {activeTab === 'itinerary' && (
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 overflow-y-auto animate-in">
         {localDays.length === 0 ? (
           <div className="flex items-center justify-center h-full">
             <div className="text-center">
-              <p className="text-gray-400 text-sm">No days planned yet.</p>
-              <p className="text-gray-300 text-xs mt-1">Chat with the AI to add your itinerary.</p>
+              <p className="text-2xl mb-2">✈️</p>
+              <p className="text-gray-500 text-sm font-medium">No itinerary yet</p>
+              <p className="text-gray-300 text-xs mt-1">Chat with the AI to start planning.</p>
             </div>
           </div>
         ) : (
@@ -356,17 +360,35 @@ export function ItineraryView({ trip }: ItineraryViewProps) {
             onDragOver={handleDragOver}
             onDragEnd={handleDragEnd}
           >
-            <div className="p-4 md:p-6 space-y-4 max-w-2xl mx-auto w-full pb-8">
+            {/* Stagger: each DayCard slides up with an increasing delay */}
+            <motion.div
+              key={trip.id}
+              initial="hidden"
+              animate="show"
+              variants={{ show: { transition: { staggerChildren: 0.07 } } }}
+              className="p-4 md:p-6 space-y-4 max-w-2xl mx-auto w-full pb-8"
+            >
               {localDays.map((day, index) => (
-                <DayCard
+                <motion.div
                   key={day.id}
-                  day={day}
-                  index={index}
-                  tripCurrency={budget.currency}
-                  isDraggingAny={activeDragId !== null}
-                />
+                  variants={{
+                    hidden: { opacity: 0, y: 20 },
+                    show: {
+                      opacity: 1,
+                      y: 0,
+                      transition: { duration: 0.38, ease: [0.16, 1, 0.3, 1] },
+                    },
+                  }}
+                >
+                  <DayCard
+                    day={day}
+                    index={index}
+                    tripCurrency={budget.currency}
+                    isDraggingAny={activeDragId !== null}
+                  />
+                </motion.div>
               ))}
-            </div>
+            </motion.div>
 
             {/* Ghost card that follows the cursor while dragging */}
             <DragOverlay dropAnimation={null}>

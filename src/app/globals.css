@@ -62,3 +62,27 @@ body {
 /* Activity card drag ghost */
 .dnd-dragging { opacity: 0.4; }
 .dnd-over     { outline: 2px dashed #4f46e5; border-radius: 12px; }
+
+/* ── Leaflet popup overrides ────────────────────────────────────────────────── */
+.leaflet-popup-content-wrapper {
+  border-radius: 10px !important;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.12) !important;
+  border: 1px solid #e2e8f0;
+  padding: 0 !important;
+}
+.leaflet-popup-content {
+  margin: 10px 13px !important;
+  font-family: inherit !important;
+  font-size: 13px !important;
+  line-height: 1.5 !important;
+  color: #1e293b;
+}
+.leaflet-popup-tip-container { margin-top: -1px; }
+.leaflet-popup-tip { box-shadow: none !important; background: #ffffff !important; }
+.leaflet-popup-close-button {
+  top: 6px !important;
+  right: 7px !important;
+  color: #94a3b8 !important;
+  font-size: 16px !important;
+}
+.leaflet-popup-close-button:hover { color: #4f46e5 !important; }

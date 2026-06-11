@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect, useCallback, FormEvent, KeyboardEvent } from 'react'
 import { Send, Sparkles, Loader2, User } from 'lucide-react'
+import { motion, AnimatePresence } from 'framer-motion'
 import { useStore } from '@/lib/store'
 import type { ChatMessage, AgentTripResponse } from '@/lib/types'
 import { cn } from '@/lib/utils'
@@ -264,9 +265,11 @@ export function ChatPanel() {
           </div>
         )}
 
-        {messages.map((msg) => (
-          <MessageBubble key={msg.id} message={msg} />
-        ))}
+        <AnimatePresence initial={false}>
+          {messages.map((msg) => (
+            <MessageBubble key={msg.id} message={msg} />
+          ))}
+        </AnimatePresence>
 
         <div ref={messagesEndRef} />
       </div>
@@ -321,7 +324,12 @@ function MessageBubble({ message }: { message: ChatMessage }) {
   const isUser = message.role === 'user'
 
   return (
-    <div className={cn('flex gap-2', isUser ? 'justify-end' : 'justify-start')}>
+    <motion.div
+      className={cn('flex gap-2', isUser ? 'justify-end' : 'justify-start')}
+      initial={{ opacity: 0, y: 10, scale: 0.97 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+    >
       {!isUser && (
         <div className="w-6 h-6 rounded-full bg-indigo-600 flex items-center justify-center shrink-0 mt-0.5">
           <Sparkles size={10} className="text-white" />
@@ -348,7 +356,7 @@ function MessageBubble({ message }: { message: ChatMessage }) {
           <User size={11} className="text-gray-500" />
         </div>
       )}
-    </div>
+    </motion.div>
   )
 }
 
