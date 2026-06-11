@@ -14,6 +14,7 @@ import { cn } from '@/lib/utils'
 export function ChatPanel() {
   const [input, setInput] = useState('')
   const [isEnhancing, setIsEnhancing] = useState(false)
+  const [isFocused, setIsFocused] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
@@ -307,6 +308,34 @@ export function ChatPanel() {
         <div ref={messagesEndRef} />
       </div>
 
+      {/* Prompt tips — slide in when textarea is focused and input is short */}
+      <AnimatePresence>
+        {isFocused && input.length < 80 && !isGenerating && (
+          <motion.div
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 6 }}
+            transition={{ duration: 0.18, ease: 'easeOut' }}
+            className="mx-3 mb-1 rounded-xl border border-violet-100 bg-violet-50 px-3 py-2.5"
+          >
+            <p className="text-[10px] font-semibold text-violet-500 uppercase tracking-wide mb-2">
+              ✦ For best results, mention…
+            </p>
+            <div className="grid grid-cols-2 gap-x-3 gap-y-1.5">
+              {PROMPT_TIPS.map((tip) => (
+                <div key={tip.label} className="flex items-start gap-1.5">
+                  <span className="text-[13px] leading-none mt-px">{tip.emoji}</span>
+                  <div>
+                    <span className="text-[11px] font-semibold text-violet-700">{tip.label} </span>
+                    <span className="text-[11px] text-violet-400">{tip.example}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Input */}
       <div className="px-3 pb-3 pt-2 border-t border-gray-100 flex-shrink-0">
         <form onSubmit={handleSend} className="flex items-end gap-2">
@@ -318,6 +347,8 @@ export function ChatPanel() {
             placeholder={activeTrip ? 'Ask to change something…' : 'Describe your dream trip…'}
             rows={1}
             disabled={isGenerating}
+            onFocus={() => setIsFocused(true)}
+            onBlur={() => setIsFocused(false)}
             className={cn(
               'flex-1 resize-none rounded-xl border border-gray-200 px-3 py-2.5 text-sm',
               'text-gray-800 placeholder:text-gray-400 leading-relaxed',
@@ -424,6 +455,18 @@ function TypingIndicator() {
     </span>
   )
 }
+
+// ─── Prompt tips ──────────────────────────────────────────────────────────────
+// Shown when the textarea is focused and the input is short, to guide the user.
+
+const PROMPT_TIPS = [
+  { emoji: '📍', label: 'Where',     example: '"Tokyo" or "3 cities"' },
+  { emoji: '📅', label: 'Duration',  example: '"5 days" or "2 weeks"' },
+  { emoji: '🗓️', label: 'Dates',     example: '"March" or "summer 2025"' },
+  { emoji: '💰', label: 'Budget',    example: '"budget" / "luxury"' },
+  { emoji: '🎯', label: 'Interests', example: '"food, temples, hiking"' },
+  { emoji: '👥', label: 'Group',     example: '"solo" / "family of 4"' },
+]
 
 // ─── Starter prompts ───────────────────────────────────────────────────────────
 
