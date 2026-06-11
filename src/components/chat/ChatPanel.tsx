@@ -358,7 +358,7 @@ export function ChatPanel() {
 
       {/* Prompt tips — slide in when textarea is focused and input is short */}
       <AnimatePresence>
-        {isFocused && input.length < 80 && !isGenerating && (
+        {isFocused && !isGenerating && (
           <motion.div
             initial={{ opacity: 0, y: 6 }}
             animate={{ opacity: 1, y: 0 }}
