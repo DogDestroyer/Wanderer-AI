@@ -1,7 +1,7 @@
 'use client'
 
-import { useState, useRef, useEffect, type FormEvent, type KeyboardEvent } from 'react'
-import { Send, Sparkles, Loader2, User, Wand2, Settings2 } from 'lucide-react'
+import { useState, useRef, useEffect } from 'react'
+import { Sparkles, Loader2, User, Settings2 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useStore } from '@/lib/store'
 import { useChatSend } from '@/hooks/useChatSend'
@@ -9,6 +9,7 @@ import type { ChatMessage } from '@/lib/types'
 import { cn } from '@/lib/utils'
 import { AgentSettingsPanel } from './AgentSettingsPanel'
 import { showToast } from '@/components/ui/Toast'
+import { ChatInput, type ChatInputHandle } from './ChatInput'
 
 // ─── ChatPanel ─────────────────────────────────────────────────────────────────
 
@@ -18,7 +19,7 @@ export function ChatPanel() {
   const [isFocused, setIsFocused] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
-  const textareaRef    = useRef<HTMLTextAreaElement>(null)
+  const chatInputRef   = useRef<ChatInputHandle>(null)
 
   const activeTripId = useStore((s) => s.activeTripId)
   const trips        = useStore((s) => s.trips)
@@ -35,22 +36,14 @@ export function ChatPanel() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
-  // Focus textarea when panel mounts
+  // Focus on mount
   useEffect(() => {
-    requestAnimationFrame(() => { textareaRef.current?.focus() })
+    requestAnimationFrame(() => { chatInputRef.current?.focus() })
   }, [])
-
-  // Auto-resize textarea
-  function handleInputChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
-    setInput(e.target.value)
-    const el = e.target
-    el.style.height = 'auto'
-    el.style.height = `${Math.min(el.scrollHeight, 120)}px`
-  }
 
   // Focus when WelcomeScreen / Hero CTA fires
   useEffect(() => {
-    function handler() { textareaRef.current?.focus() }
+    function handler() { chatInputRef.current?.focus() }
     document.addEventListener('wandr:focus-chat', handler)
     return () => document.removeEventListener('wandr:focus-chat', handler)
   }, [])
@@ -61,13 +54,8 @@ export function ChatPanel() {
       const msg = (e as CustomEvent<{ message: string }>).detail?.message
       if (!msg) return
       setInput(msg)
-      requestAnimationFrame(() => {
-        const el = textareaRef.current
-        if (!el) return
-        el.style.height = 'auto'
-        el.style.height = `${Math.min(el.scrollHeight, 120)}px`
-        el.focus()
-      })
+      // Height auto-adjusts via useLayoutEffect in ChatInput; just focus
+      requestAnimationFrame(() => { chatInputRef.current?.focus() })
     }
     document.addEventListener('wandr:chat-prompt', handler)
     return () => document.removeEventListener('wandr:chat-prompt', handler)
@@ -76,19 +64,16 @@ export function ChatPanel() {
   // wandr:send-message — programmatic send (e.g. from DayCard or ItineraryView)
   const handleSendRef = useRef<((text: string) => void) | null>(null)
 
-  async function handleSend(e?: FormEvent, override?: string) {
-    e?.preventDefault()
+  async function handleSend(override?: string) {
     const text = (override ?? input).trim()
     if (!text || isGenerating) return
-    if (!override) {
-      setInput('')
-      if (textareaRef.current) textareaRef.current.style.height = 'auto'
-    }
+    if (!override) setInput('')
+    // Height auto-resets via useLayoutEffect in ChatInput when value becomes ''
     await sendMessage(text)
   }
 
   useEffect(() => {
-    handleSendRef.current = (text: string) => handleSend(undefined, text)
+    handleSendRef.current = (text: string) => handleSend(text)
   })
 
   useEffect(() => {
@@ -121,13 +106,7 @@ export function ChatPanel() {
       const enhanced: string | undefined = data.enhanced
       if (enhanced && enhanced !== text) {
         setInput(enhanced)
-        requestAnimationFrame(() => {
-          const el = textareaRef.current
-          if (!el) return
-          el.style.height = 'auto'
-          el.style.height = `${Math.min(el.scrollHeight, 120)}px`
-          el.focus()
-        })
+        requestAnimationFrame(() => { chatInputRef.current?.focus() })
         showToast({ message: 'Prompt enhanced ✦', type: 'success' })
       } else {
         showToast({ message: 'Nothing to improve — prompt looks good!', type: 'info' })
@@ -137,13 +116,6 @@ export function ChatPanel() {
       showToast({ message: 'Could not reach the server — check your connection', type: 'warning' })
     } finally {
       setIsEnhancing(false)
-    }
-  }
-
-  function handleKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault()
-      handleSend()
     }
   }
 
@@ -212,7 +184,7 @@ export function ChatPanel() {
               {STARTER_PROMPTS.map((prompt) => (
                 <button
                   key={prompt}
-                  onClick={() => { setInput(prompt); textareaRef.current?.focus() }}
+                  onClick={() => { setInput(prompt); chatInputRef.current?.focus() }}
                   className="text-left text-[11px] text-[#666] bg-[#111111] border border-[#1f1f1f] hover:border-[#333] hover:text-[#f0f0f0] rounded-lg px-3 py-2 transition-all leading-relaxed"
                 >
                   {prompt}
@@ -261,63 +233,19 @@ export function ChatPanel() {
 
       {/* ── Input area ───────────────────────────────────────────────────────── */}
       <div className="px-3 pb-3 pt-2 border-t border-[#1f1f1f] flex-shrink-0">
-        <form onSubmit={handleSend} className="flex items-end gap-2">
-          <textarea
-            ref={textareaRef}
-            value={input}
-            onChange={handleInputChange}
-            onKeyDown={handleKeyDown}
-            placeholder={activeTrip ? 'Ask to change something…' : 'Describe your dream trip…'}
-            rows={1}
-            disabled={isGenerating}
-            onFocus={() => setIsFocused(true)}
-            onBlur={() => setIsFocused(false)}
-            className={cn(
-              'flex-1 resize-none rounded-xl border border-[#2a2a2a] bg-[#111111] px-3 py-2.5 text-[13px]',
-              'text-[#f0f0f0] placeholder:text-[#444] leading-relaxed',
-              'focus:outline-none focus:border-[#444]',
-              'disabled:opacity-40 transition-all overflow-hidden',
-            )}
-            style={{ minHeight: '40px', maxHeight: '120px' }}
-          />
-
-          {/* Enhance button */}
-          <button
-            type="button"
-            onClick={handleEnhance}
-            disabled={!input.trim() || isGenerating || isEnhancing}
-            title="Enhance prompt with AI"
-            className={cn(
-              'flex-shrink-0 w-10 h-10 rounded-xl flex items-center justify-center border transition-colors',
-              'border-[#2a2a2a] bg-[#111111] text-[#555]',
-              'hover:border-[#444] hover:text-[#f0f0f0]',
-              'disabled:opacity-30 disabled:cursor-not-allowed',
-            )}
-          >
-            {isEnhancing ? (
-              <Loader2 size={13} className="animate-spin" />
-            ) : (
-              <Wand2 size={13} />
-            )}
-          </button>
-
-          {/* Send button */}
-          <button
-            type="submit"
-            disabled={!input.trim() || isGenerating}
-            className={cn(
-              'flex-shrink-0 w-10 h-10 rounded-xl flex items-center justify-center transition-colors',
-              'bg-white text-black hover:bg-[#e8e8e8] active:bg-[#d0d0d0]',
-              'disabled:bg-[#1a1a1a] disabled:text-[#444]',
-            )}
-          >
-            {isGenerating ? (
-              <Loader2 size={14} className="animate-spin text-[#555]" />
-            ) : (
-              <Send size={13} />
-            )}
-          </button>
-        </form>
+        <ChatInput
+          ref={chatInputRef}
+          value={input}
+          onChange={setInput}
+          onSubmit={handleSend}
+          onEnhance={handleEnhance}
+          isGenerating={isGenerating}
+          isEnhancing={isEnhancing}
+          placeholder={activeTrip ? 'Ask to change something…' : 'Describe your dream trip…'}
+          onFocus={() => setIsFocused(true)}
+          onBlur={() => setIsFocused(false)}
+          variant="panel"
+        />
         <p className="text-[10px] text-[#333] mt-1.5 text-center">
           Enter to send · Shift+Enter for new line · <span className="text-[#444]">✦ wand to enhance</span>
         </p>

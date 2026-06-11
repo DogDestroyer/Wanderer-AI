@@ -22,6 +22,7 @@ export function useChatSend() {
   const setIsGenerating          = useStore((s) => s.setIsGenerating)
   const createTrip               = useStore((s) => s.createTrip)
   const updateTrip               = useStore((s) => s.updateTrip)
+  const setUserDefaults          = useStore((s) => s.setUserDefaults)
 
   const activeTrip  = activeTripId ? trips[activeTripId] : null
   const chatKey     = activeTripId ?? '__new__'
@@ -42,10 +43,20 @@ export function useChatSend() {
     const { action, trip, patch } = response
 
     if ((action === 'create_trip' || action === 'create') && trip) {
-      createTrip(trip)
+      // Attach assumptions to the trip object before saving
+      const tripWithAssumptions = response.assumptions?.length
+        ? { ...trip, assumptions: response.assumptions }
+        : trip
+      createTrip(tripWithAssumptions)
+      // Remember this trip's preferences as the user's defaults for future sessions
+      setUserDefaults(trip.preferences)
     } else if (action === 'replace_trip' && trip && snapshotActiveTripId) {
       const { id: _id, createdAt: _ca, ...rest } = trip
-      updateTrip(snapshotActiveTripId, rest as Partial<import('@/lib/types').TripPlan>)
+      const patchWithAssumptions = response.assumptions?.length
+        ? { ...rest, assumptions: response.assumptions }
+        : rest
+      updateTrip(snapshotActiveTripId, patchWithAssumptions as Partial<import('@/lib/types').TripPlan>)
+      setUserDefaults(trip.preferences)
     } else if (
       (action === 'replace_day_activities' || action === 'update_trip_meta' || action === 'patch') &&
       patch && snapshotActiveTripId
@@ -54,7 +65,7 @@ export function useChatSend() {
       updateTrip(snapshotActiveTripId, tripFields as Partial<import('@/lib/types').TripPlan>)
     }
     // 'chat-only' — nothing to update
-  }, [createTrip, updateTrip, updateLastAssistantMessage])
+  }, [createTrip, updateTrip, updateLastAssistantMessage, setUserDefaults])
 
   // ── Core send function ───────────────────────────────────────────────────────
   const sendMessage = useCallback(async (text: string) => {

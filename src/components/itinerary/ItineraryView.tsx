@@ -32,6 +32,7 @@ import { ActivityCard } from './ActivityCard'
 import { BudgetPanel } from './BudgetPanel'
 import { MapPanel } from '@/components/map/MapPanel'
 import { PreferenceSliders } from '@/components/preferences/PreferenceSliders'
+import { AssumptionChips } from './AssumptionChips'
 import { showToast } from '@/components/ui/Toast'
 
 interface ItineraryViewProps {
@@ -232,6 +233,13 @@ export function ItineraryView({ trip }: ItineraryViewProps) {
                 {interest}
               </span>
             ))}
+          </div>
+        )}
+
+        {/* CHANGE 3: Assumption chips — AI's key parameters, inferred ones dotted */}
+        {trip.assumptions && trip.assumptions.length > 0 && (
+          <div className="mt-3 pt-3 border-t border-[#111111]">
+            <AssumptionChips trip={trip} />
           </div>
         )}
       </div>

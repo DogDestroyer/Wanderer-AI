@@ -149,6 +149,17 @@ export interface AgentSuggestion {
   createdAt: string
 }
 
+// ─── Assumption chips ─────────────────────────────────────────────────────────
+// Key parameters the agent used when generating a plan — shown as editable chips
+// at the top of the itinerary so the user can see and correct any AI guesses.
+
+export interface TripAssumption {
+  field: string    // 'partyType' | 'budget' | 'pace' | 'tripStyle' | 'dates'
+  label: string    // human-readable: 'Party', 'Budget', 'Pace', 'Style', 'Dates'
+  value: string    // human-readable: 'Couple', 'Mid-range', 'Balanced', 'Dec 2026'
+  source: 'message' | 'preference' | 'inferred'
+}
+
 export interface TripPlan {
   id: string
   name: string
@@ -159,6 +170,7 @@ export interface TripPlan {
   preferences: TripPreferences
   days: Day[]
   suggestions: AgentSuggestion[]
+  assumptions?: TripAssumption[]  // key parameters used when the plan was generated
   coverImageUrl?: string
   createdAt: string
   updatedAt: string
@@ -246,5 +258,6 @@ export interface AgentTripResponse {
   trip?: TripPlan       // populated for create_trip / replace_trip
   patch?: AgentTripPatch // populated for replace_day_activities / update_trip_meta / legacy patch
   message: string
+  assumptions?: TripAssumption[]  // key parameters used — shown as editable chips
   clarifyingQuestions?: string[]
 }

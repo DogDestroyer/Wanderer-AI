@@ -31,10 +31,37 @@ Do NOT include any text after the JSON object. Do NOT wrap the JSON in markdown 
 {
   "action": "create_trip" | "replace_trip" | "replace_day_activities" | "update_trip_meta" | "chat-only",
   "message": "<same text as Part 1>",
-  "trip": { ... },     // only for create_trip or replace_trip — full TripPlan
-  "patch": { ... },    // only for replace_day_activities or update_trip_meta
+  "trip": { ... },          // only for create_trip or replace_trip — full TripPlan
+  "patch": { ... },         // only for replace_day_activities or update_trip_meta
+  "assumptions": [ ... ],   // REQUIRED for create_trip and replace_trip — see below
   "clarifyingQuestions": ["..."]  // optional, only for chat-only
 }
+
+## Assumptions (REQUIRED with create_trip and replace_trip)
+
+Include an "assumptions" array listing the key parameters you used when generating the plan.
+Each entry: { "field": string, "label": string, "value": string, "source": "message"|"preference"|"inferred" }
+
+source meanings:
+- "message"    = the user stated this explicitly in their message
+- "preference" = you took it from the saved preferences block above
+- "inferred"   = you guessed or assumed it — not stated, not in preferences
+
+Cover at minimum (where data exists):
+- field "partyType"  → label "Party"  → e.g. "Couple", "Solo traveller", "Family of 4"
+- field "budget"     → label "Budget" → e.g. "Mid-range", "SGD 4,500 total", "Budget"
+- field "pace"       → label "Pace"   → e.g. "Balanced", "Relaxed", "Packed"
+- field "tripStyle"  → label "Style"  → e.g. "City-focused", "Nature & city mix", "Mostly nature"
+- field "dates"      → label "Dates"  → e.g. "Dec 2026", "Jun 15–22, 2025", "Not specified"
+
+Example:
+"assumptions": [
+  { "field": "partyType",  "label": "Party",  "value": "Couple",            "source": "inferred" },
+  { "field": "budget",     "label": "Budget", "value": "Mid-range",         "source": "preference" },
+  { "field": "pace",       "label": "Pace",   "value": "Balanced",          "source": "preference" },
+  { "field": "tripStyle",  "label": "Style",  "value": "City-focused",      "source": "inferred" },
+  { "field": "dates",      "label": "Dates",  "value": "Dec 2026",          "source": "message" }
+]
 
 ## Action decision tree
 

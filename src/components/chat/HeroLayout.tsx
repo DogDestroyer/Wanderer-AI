@@ -1,13 +1,14 @@
 'use client'
 
-import { useState, useRef, useEffect, type KeyboardEvent } from 'react'
-import { Send, Wand2, Loader2, SlidersHorizontal } from 'lucide-react'
+import { useState, useRef, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import { useStore } from '@/lib/store'
 import { useChatSend } from '@/hooks/useChatSend'
 import { PreferencesPanel } from '@/components/preferences/PreferencesPanel'
+import { PreferencesPill } from './PreferencesPill'
 import { showToast } from '@/components/ui/Toast'
-import { cn, getPaceLabel, getBudgetLabel, getTripStyleLabel } from '@/lib/utils'
+import { cn, getBudgetLabel, getPaceLabel } from '@/lib/utils'
+import { ChatInput, type ChatInputHandle } from './ChatInput'
 
 const EASE = [0.16, 1, 0.3, 1] as [number, number, number, number]
 
@@ -20,50 +21,44 @@ const FEATURES = [
   { label: 'Partial re-plans', desc: 'Change one day, keep locked stops.' },
 ]
 
+// CHANGE 2: Example prompt chips that fill the input on tap
+const EXAMPLE_PROMPTS = [
+  'A relaxed week in Bali under $1,500',
+  '10 days in Japan, food obsessed',
+  'Long weekend in Melbourne with kids',
+]
+
 // ─── HeroLayout ───────────────────────────────────────────────────────────────
 
 export function HeroLayout() {
-  const [input, setInput] = useState('')
+  const [input, setInput]       = useState('')
   const [isEnhancing, setIsEnhancing] = useState(false)
-  const [showPrefsPanel, setShowPrefsPanel] = useState(false)
-  const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const [showFullPanel, setShowFullPanel] = useState(false)
+  const chatInputRef = useRef<ChatInputHandle>(null)
 
-  const prefs       = useStore((s) => s.draftPreferences)
-  const updateDraft = useStore((s) => s.updateDraftPreferences)
+  // CHANGE 4: Returning user memory
+  const userDefaults    = useStore((s) => s.userDefaults)
+  const draftPreferences = useStore((s) => s.draftPreferences)
+
   const { sendMessage, isGenerating } = useChatSend()
 
   // Focus on mount
   useEffect(() => {
-    requestAnimationFrame(() => { textareaRef.current?.focus() })
+    requestAnimationFrame(() => { chatInputRef.current?.focus() })
   }, [])
 
   // wandr:focus-chat → focus textarea
   useEffect(() => {
-    function handler() { textareaRef.current?.focus() }
+    function handler() { chatInputRef.current?.focus() }
     document.addEventListener('wandr:focus-chat', handler)
     return () => document.removeEventListener('wandr:focus-chat', handler)
   }, [])
-
-  function handleInputChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
-    setInput(e.target.value)
-    const el = e.target
-    el.style.height = 'auto'
-    el.style.height = `${Math.min(el.scrollHeight, 160)}px`
-  }
-
-  function handleKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault()
-      submit()
-    }
-  }
 
   function submit() {
     const text = input.trim()
     if (!text || isGenerating) return
     sendMessage(text)
     setInput('')
-    if (textareaRef.current) textareaRef.current.style.height = 'auto'
   }
 
   async function handleEnhance() {
@@ -80,13 +75,7 @@ export function HeroLayout() {
       const { enhanced } = await res.json()
       if (enhanced && enhanced !== text) {
         setInput(enhanced)
-        requestAnimationFrame(() => {
-          const el = textareaRef.current
-          if (!el) return
-          el.style.height = 'auto'
-          el.style.height = `${Math.min(el.scrollHeight, 160)}px`
-          el.focus()
-        })
+        requestAnimationFrame(() => { chatInputRef.current?.focus() })
         showToast({ message: 'Prompt enhanced ✦', type: 'success' })
       } else {
         showToast({ message: 'Nothing to improve — looks good!', type: 'info' })
@@ -95,28 +84,22 @@ export function HeroLayout() {
     finally { setIsEnhancing(false) }
   }
 
+  // CHANGE 4: Build a readable summary of remembered defaults
+  const defaultsSummary = userDefaults
+    ? [
+        userDefaults.partyType ?? 'traveller',
+        getBudgetLabel(userDefaults.budgetLevel),
+        ...(userDefaults.interests?.slice(0, 2) ?? []),
+      ].join(' · ')
+    : null
+
   return (
-    /*
-     * Optical centering strategy:
-     *   Desktop (md+): justify-center + pb-[12dvh] shifts the content block
-     *     above true geometric centre — input lands at ≈ 43–45% of viewport height.
-     *   Mobile (<768px): justify-start + pt-8 (32px) positions the block near the
-     *     top so the on-screen keyboard cannot cover the input.
-     *
-     * overflow-y-auto lets the content scroll on very small screens rather than
-     * being clipped by the parent's overflow-hidden.
-     */
     <div className={cn(
       'flex flex-col items-center w-full h-full overflow-y-auto bg-[#0a0a0a]',
       'px-5 pt-8',
       'md:px-0 md:pt-0 md:justify-center md:pb-[12dvh]',
     )}>
 
-      {/*
-       * Single animated container wrapping ALL hero content — headline, sliders,
-       * input, hint, features — so the entrance is one cohesive fade + rise.
-       * Max-width 760px to accommodate the wider feature grid below.
-       */}
       <motion.div
         className="w-full max-w-[760px] flex flex-col items-center"
         initial={{ opacity: 0, y: 20 }}
@@ -124,116 +107,73 @@ export function HeroLayout() {
         transition={{ duration: 0.5, ease: EASE }}
       >
 
-        {/* ── 680px core: headline · sliders · input · hint ─────────────────── */}
+        {/* ── 680px core: headline · input · hint · pill · chips ─────────────── */}
         <div className="w-full max-w-[680px]">
 
-          {/* Headline — 56px desktop / 36px mobile */}
+          {/* Headline */}
           <h1 className="text-center text-[36px] md:text-[56px] font-semibold text-[#f0f0f0] mb-10 tracking-[-0.02em]">
             Where to next?
           </h1>
 
-          {/* ── Compact preferences bar ─────────────────────────────────────── */}
-          {/* mb-6 = 24px gap between sliders row and input (spec) */}
-          <div className="flex items-start gap-2 mb-6">
+          {/* ── Input ────────────────────────────────────────────────────────── */}
+          <ChatInput
+            ref={chatInputRef}
+            value={input}
+            onChange={setInput}
+            onSubmit={submit}
+            onEnhance={handleEnhance}
+            isGenerating={isGenerating}
+            isEnhancing={isEnhancing}
+            placeholder="Describe your dream trip…"
+            variant="hero"
+          />
 
-            {/* 3 sliders — 3-col grid on desktop, 2-col wrap on mobile */}
-            <div className="flex-1 grid grid-cols-2 md:grid-cols-3 gap-3">
-              <CompactSlider
-                label="Budget"
-                value={prefs.budgetLevel}
-                valueLabel={getBudgetLabel(prefs.budgetLevel)}
-                onChange={(v) => updateDraft({ budgetLevel: v })}
-              />
-              <CompactSlider
-                label="Pace"
-                value={prefs.paceLevel}
-                valueLabel={getPaceLabel(prefs.paceLevel)}
-                onChange={(v) => updateDraft({ paceLevel: v })}
-              />
-              {/* Style spans full width on mobile (col-span-2) to avoid orphan cell */}
-              <CompactSlider
-                label="Style"
-                value={prefs.tripStyle ?? 50}
-                valueLabel={getTripStyleLabel(prefs.tripStyle ?? 50)}
-                onChange={(v) => updateDraft({ tripStyle: v })}
-                className="col-span-2 md:col-span-1"
-              />
+          {/* ── Hint + pill row ───────────────────────────────────────────────── */}
+          <div className="flex items-center justify-between mt-3 gap-3">
+            <p className="text-[12px] text-[#333]">
+              Enter to send · Shift+Enter for new line · <span className="text-[#3a3a3a]">✦ wand to enhance</span>
+            </p>
+            {/* CHANGE 1: Preferences pill replaces the 3-slider row */}
+            <PreferencesPill />
+          </div>
+
+          {/* CHANGE 4: Returning-user memory line */}
+          {defaultsSummary && (
+            <p className="text-[11px] text-[#333] mt-2 text-center">
+              ↩ Remembered from last trip: {defaultsSummary}
+              {' · '}
+              <button
+                onClick={() => setShowFullPanel(true)}
+                className="underline hover:text-[#666] transition-colors"
+              >
+                change
+              </button>
+            </p>
+          )}
+
+          {/* CHANGE 2: Example prompt chips */}
+          {!isGenerating && (
+            <div className="mt-4 flex gap-2 overflow-x-auto pb-0.5 scrollbar-none">
+              {EXAMPLE_PROMPTS.map((prompt) => (
+                <button
+                  key={prompt}
+                  onClick={() => {
+                    setInput(prompt)
+                    requestAnimationFrame(() => { chatInputRef.current?.focus() })
+                  }}
+                  className={cn(
+                    'flex-shrink-0 px-3 py-1.5 rounded-full border border-[#1f1f1f] bg-transparent',
+                    'text-[12px] text-[#444] whitespace-nowrap transition-colors',
+                    'hover:border-[#333] hover:text-[#888]',
+                  )}
+                >
+                  {prompt}
+                </button>
+              ))}
             </div>
+          )}
 
-            {/* Expand-options icon — pinned to right edge of the sliders row */}
-            <button
-              onClick={() => setShowPrefsPanel(true)}
-              title="All preferences"
-              className={cn(
-                'flex-shrink-0 w-[38px] h-[38px] mt-[14px] rounded-xl',
-                'flex items-center justify-center border transition-colors',
-                'bg-[#111111] border-[#2a2a2a] text-[#555] hover:text-[#f0f0f0] hover:border-[#444]',
-              )}
-            >
-              <SlidersHorizontal size={13} />
-            </button>
-          </div>
-
-          {/* ── Input row ─────────────────────────────────────────────────────── */}
-          {/* items-end so buttons sit flush with the textarea baseline */}
-          <div className="flex items-end gap-2">
-            <textarea
-              ref={textareaRef}
-              value={input}
-              onChange={handleInputChange}
-              onKeyDown={handleKeyDown}
-              placeholder="Describe your dream trip…"
-              rows={1}
-              disabled={isGenerating}
-              className={cn(
-                'flex-1 resize-none rounded-2xl border border-[#2a2a2a] bg-[#111111]',
-                'px-5 py-[18px] text-[17px] text-[#f0f0f0] placeholder:text-[#444] leading-snug',
-                'focus:outline-none focus:border-[#444] transition-all overflow-hidden',
-                'disabled:opacity-40',
-              )}
-              style={{ minHeight: '60px', maxHeight: '160px' }}
-            />
-
-            {/* Enhance button — same height as resting textarea */}
-            <button
-              type="button"
-              onClick={handleEnhance}
-              disabled={!input.trim() || isGenerating || isEnhancing}
-              title="Enhance prompt"
-              className={cn(
-                'flex-shrink-0 w-12 h-[60px] rounded-2xl flex items-center justify-center border transition-colors',
-                'bg-[#111111] border-[#2a2a2a] text-[#555]',
-                'hover:border-[#444] hover:text-[#f0f0f0]',
-                'disabled:opacity-30 disabled:cursor-not-allowed',
-              )}
-            >
-              {isEnhancing ? <Loader2 size={14} className="animate-spin" /> : <Wand2 size={14} />}
-            </button>
-
-            {/* Send button — same height as resting textarea */}
-            <button
-              type="button"
-              onClick={submit}
-              disabled={!input.trim() || isGenerating}
-              className={cn(
-                'flex-shrink-0 w-12 h-[60px] rounded-2xl flex items-center justify-center transition-colors',
-                'bg-white text-black hover:bg-[#e8e8e8] active:bg-[#d0d0d0]',
-                'disabled:bg-[#1a1a1a] disabled:text-[#444]',
-              )}
-            >
-              {isGenerating
-                ? <Loader2 size={15} className="animate-spin text-[#555]" />
-                : <Send size={14} />
-              }
-            </button>
-          </div>
-
-          {/* Hint text — 12px, 12px below input */}
-          <p className="text-[12px] text-[#333] mt-3 text-center">
-            Enter to send · Shift+Enter for new line · <span className="text-[#3a3a3a]">✦ wand to enhance</span>
-          </p>
-
-          {/* Generating indicator (replaces feature strip while streaming) */}
+          {/* Generating indicator */}
           {isGenerating && (
             <div className="mt-5 flex items-center justify-center gap-2 text-[#555]">
               <div className="flex gap-1">
@@ -246,8 +186,7 @@ export function HeroLayout() {
           )}
         </div>
 
-        {/* ── Feature pointers — 760px wide, 48px below hint text ────────────── */}
-        {/* 3×2 grid desktop / 2×3 grid mobile */}
+        {/* ── Feature pointers ─────────────────────────────────────────────────── */}
         {!isGenerating && (
           <div className="w-full mt-12">
             <div className="h-px bg-[#1a1a1a] mb-8" />
@@ -263,39 +202,8 @@ export function HeroLayout() {
         )}
       </motion.div>
 
-      {/* Full preferences panel modal */}
-      <PreferencesPanel open={showPrefsPanel} onClose={() => setShowPrefsPanel(false)} />
-    </div>
-  )
-}
-
-// ─── CompactSlider ────────────────────────────────────────────────────────────
-
-function CompactSlider({
-  label, value, valueLabel, onChange, className,
-}: {
-  label: string
-  value: number
-  valueLabel: string
-  onChange: (v: number) => void
-  className?: string
-}) {
-  return (
-    <div className={className}>
-      <div className="flex items-center justify-between mb-1">
-        <span className="text-[13px] font-medium text-[#444]">{label}</span>
-        <span className="text-[13px] font-semibold text-[#666] tabular-nums leading-none">{valueLabel}</span>
-      </div>
-      <input
-        type="range"
-        min={0}
-        max={100}
-        step={5}
-        value={value}
-        onChange={(e) => onChange(Number(e.target.value))}
-        className="w-full cursor-pointer"
-        style={{ accentColor: '#ffffff', height: '2px' }}
-      />
+      {/* Full preferences panel */}
+      <PreferencesPanel open={showFullPanel} onClose={() => setShowFullPanel(false)} />
     </div>
   )
 }

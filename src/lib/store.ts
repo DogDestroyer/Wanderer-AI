@@ -21,6 +21,7 @@ interface AppState {
   sidebarOpen: boolean  // mobile sidebar toggle
   agentSettings: AgentSettings
   draftPreferences: TripPreferences  // pre-trip preference state (hero layout)
+  userDefaults?: TripPreferences     // snapshot from last completed trip generation
 
   // ── Trip CRUD ──
   createTrip: (trip: TripPlan) => void
@@ -30,6 +31,7 @@ interface AppState {
   setSidebarOpen: (open: boolean) => void
   updateAgentSettings: (patch: Partial<AgentSettings>) => void
   updateDraftPreferences: (patch: Partial<TripPreferences>) => void
+  setUserDefaults: (prefs: TripPreferences) => void
 
   // ── Day ──
   updateDay: (tripId: string, dayId: string, patch: Partial<Day>) => void
@@ -112,6 +114,7 @@ export const useStore = create<AppState>()(
       sidebarOpen: false,
       agentSettings: DEFAULT_AGENT_SETTINGS,
       draftPreferences: DEFAULT_PREFERENCES,
+      userDefaults: undefined,
 
       // ── Trip CRUD ──────────────────────────────────────────────────────────
 
@@ -157,6 +160,7 @@ export const useStore = create<AppState>()(
         set((s) => ({ agentSettings: { ...s.agentSettings, ...patch } })),
       updateDraftPreferences: (patch) =>
         set((s) => ({ draftPreferences: { ...s.draftPreferences, ...patch } })),
+      setUserDefaults: (prefs) => set({ userDefaults: prefs }),
 
       // ── Day ───────────────────────────────────────────────────────────────
 
@@ -336,6 +340,7 @@ export const useStore = create<AppState>()(
         chatHistory: s.chatHistory,
         agentSettings: s.agentSettings,
         draftPreferences: s.draftPreferences,
+        userDefaults: s.userDefaults,
       }),
     }
   )
