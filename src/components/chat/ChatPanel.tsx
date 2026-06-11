@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef, useEffect, FormEvent, KeyboardEvent } from 'react'
+import { useState, useRef, useEffect, useCallback, FormEvent, KeyboardEvent } from 'react'
 import { Send, Sparkles, Loader2, User } from 'lucide-react'
 import { useStore } from '@/lib/store'
 import type { ChatMessage, AgentTripResponse } from '@/lib/types'
@@ -75,9 +75,13 @@ export function ChatPanel() {
     return () => document.removeEventListener('wandr:chat-prompt', handler)
   }, [])
 
-  async function handleSend(e?: FormEvent) {
+  // handleSendRef lets the wandr:send-message listener always call the latest
+  // version of handleSend without stale closure issues.
+  const handleSendRef = useRef<((e?: FormEvent, override?: string) => Promise<void>) | null>(null)
+
+  const handleSend = useCallback(async (e?: FormEvent, override?: string) => {
     e?.preventDefault()
-    const text = input.trim()
+    const text = (override ?? input).trim()
     if (!text || isGenerating) return
 
     // The chat key is captured NOW — it may be '__new__' or a real trip ID.
@@ -92,10 +96,9 @@ export function ChatPanel() {
     }
 
     addChatMessage(chatId, userMessage)
-    setInput('')
-    // Reset textarea height
-    if (textareaRef.current) {
-      textareaRef.current.style.height = 'auto'
+    if (!override) {
+      setInput('')
+      if (textareaRef.current) textareaRef.current.style.height = 'auto'
     }
     setIsGenerating(true)
 
@@ -191,7 +194,21 @@ export function ChatPanel() {
     } finally {
       setIsGenerating(false)
     }
-  }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [input, isGenerating, activeTripId, messages])
+
+  // Keep the ref fresh so event-listener callbacks always call the latest version
+  useEffect(() => { handleSendRef.current = handleSend }, [handleSend])
+
+  // Listen for auto-send requests (e.g. from the re-plan sliders or rain banners)
+  useEffect(() => {
+    function handler(e: Event) {
+      const msg = (e as CustomEvent<{ message: string }>).detail?.message
+      if (msg) handleSendRef.current?.(undefined, msg)
+    }
+    document.addEventListener('wandr:send-message', handler)
+    return () => document.removeEventListener('wandr:send-message', handler)
+  }, [])
 
   function handleKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
     if (e.key === 'Enter' && !e.shiftKey) {

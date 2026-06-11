@@ -14,7 +14,7 @@ import {
   type DragEndEvent,
 } from '@dnd-kit/core'
 import { arrayMove } from '@dnd-kit/sortable'
-import { MapPin, Calendar, DollarSign, Gauge, Star, Plane, Map } from 'lucide-react'
+import { MapPin, Calendar, DollarSign, Gauge, Star, Plane, Map, SlidersHorizontal } from 'lucide-react'
 import type { TripPlan, Day, Activity } from '@/lib/types'
 import { useStore } from '@/lib/store'
 import {
@@ -30,6 +30,7 @@ import { DayCard } from './DayCard'
 import { ActivityCard } from './ActivityCard'
 import { BudgetPanel } from './BudgetPanel'
 import { MapPanel } from '@/components/map/MapPanel'
+import { PreferenceSliders } from '@/components/preferences/PreferenceSliders'
 
 interface ItineraryViewProps {
   trip: TripPlan
@@ -40,9 +41,14 @@ export function ItineraryView({ trip }: ItineraryViewProps) {
 
   const reorderActivities = useStore((s) => s.reorderActivities)
   const moveActivity = useStore((s) => s.moveActivity)
+  const updateTrip = useStore((s) => s.updateTrip)
+  const isGenerating = useStore((s) => s.isGenerating)
 
   // ── Tab state ────────────────────────────────────────────────────────────────
   const [activeTab, setActiveTab] = useState<'itinerary' | 'budget' | 'map'>('itinerary')
+
+  // ── Sliders toggle ────────────────────────────────────────────────────────────
+  const [showSliders, setShowSliders] = useState(false)
 
   // ── Local day state for live drag preview ────────────────────────────────────
   // We maintain a copy of days so cross-day moves preview before committing.
@@ -177,6 +183,24 @@ export function ItineraryView({ trip }: ItineraryViewProps) {
     }
   }
 
+  // ── Preference re-plan ───────────────────────────────────────────────────────
+
+  function handleApplyPreferences(pace: number, budget: number) {
+    // Persist new values so they're saved across reloads
+    updateTrip(trip.id, {
+      preferences: { ...trip.preferences, paceLevel: pace, budgetLevel: budget },
+    })
+    // Auto-send to the AI — ChatPanel listens for this event
+    const msg =
+      `Please re-plan my trip with ${getPaceLabel(pace)} pace and ` +
+      `${getBudgetLabel(budget)} budget style. ` +
+      `Keep any locked activities exactly as they are and adjust ` +
+      `the rest to match the new preferences.`
+    document.dispatchEvent(
+      new CustomEvent('wandr:send-message', { detail: { message: msg } })
+    )
+  }
+
   // ── Budget ───────────────────────────────────────────────────────────────────
   const spent = calculateTripBudget(trip.days)
   const capSet = budget.cap > 0
@@ -198,8 +222,25 @@ export function ItineraryView({ trip }: ItineraryViewProps) {
               <span className="text-sm text-gray-500">{destination.name}</span>
             </div>
           </div>
-          <div className="flex-shrink-0 w-10 h-10 rounded-xl bg-indigo-600 flex items-center justify-center shadow-sm shadow-indigo-200">
-            <Plane size={18} className="text-white -rotate-45" />
+          <div className="flex items-center gap-2 shrink-0">
+            {/* Sliders toggle */}
+            {preferences && (
+              <button
+                onClick={() => setShowSliders((v) => !v)}
+                title="Adjust pace & budget"
+                className={cn(
+                  'w-8 h-8 rounded-lg flex items-center justify-center transition-colors',
+                  showSliders
+                    ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-200'
+                    : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                )}
+              >
+                <SlidersHorizontal size={14} />
+              </button>
+            )}
+            <div className="w-10 h-10 rounded-xl bg-indigo-600 flex items-center justify-center shadow-sm shadow-indigo-200">
+              <Plane size={18} className="text-white -rotate-45" />
+            </div>
           </div>
         </div>
 
@@ -252,6 +293,25 @@ export function ItineraryView({ trip }: ItineraryViewProps) {
           </div>
         )}
       </div>
+
+      {/* ── Preference sliders ───────────────────────────────────────────────── */}
+      {preferences && (
+        <div
+          className={cn(
+            'flex-shrink-0 overflow-hidden transition-all duration-300 bg-gray-50/70 border-b border-gray-100',
+            showSliders ? 'max-h-52' : 'max-h-0 border-b-0'
+          )}
+        >
+          <div className="px-6 py-4">
+            <PreferenceSliders
+              savedPace={preferences.paceLevel}
+              savedBudget={preferences.budgetLevel}
+              isGenerating={isGenerating}
+              onApply={handleApplyPreferences}
+            />
+          </div>
+        </div>
+      )}
 
       {/* ── Tabs ─────────────────────────────────────────────────────────────── */}
       <div className="flex-shrink-0 border-b border-gray-100 bg-white px-6">
