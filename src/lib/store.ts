@@ -2,7 +2,7 @@
 
 import { create } from 'zustand'
 import { persist, createJSONStorage } from 'zustand/middleware'
-import type { TripPlan, Day, Activity, ChatMessage, AgentSuggestion } from './types'
+import type { TripPlan, Day, Activity, ChatMessage, AgentSuggestion, WeatherForecast } from './types'
 import { recalculateDay } from './recalculate'
 
 // ─── State shape ──────────────────────────────────────────────────────────────
@@ -51,6 +51,9 @@ interface AppState {
   addChatMessage: (tripId: string, message: ChatMessage) => void
   updateLastAssistantMessage: (tripId: string, content: string, isStreaming?: boolean) => void
   setIsGenerating: (v: boolean) => void
+
+  // ── Weather ──
+  updateTripWeather: (tripId: string, weatherByDayId: Record<string, WeatherForecast>) => void
 
   // ── Suggestions ──
   dismissSuggestion: (tripId: string, suggestionId: string) => void
@@ -252,6 +255,28 @@ export const useStore = create<AppState>()(
         }),
 
       setIsGenerating: (v) => set({ isGenerating: v }),
+
+      // ── Weather ───────────────────────────────────────────────────────────
+      // Weather is transient data — we update days directly without bumping updatedAt.
+
+      updateTripWeather: (tripId, weatherByDayId) =>
+        set((s) => {
+          const trip = s.trips[tripId]
+          if (!trip) return s
+          return {
+            trips: {
+              ...s.trips,
+              [tripId]: {
+                ...trip,
+                days: trip.days.map((day) =>
+                  weatherByDayId[day.id]
+                    ? { ...day, weather: weatherByDayId[day.id] }
+                    : day
+                ),
+              },
+            },
+          }
+        }),
 
       // ── Suggestions ───────────────────────────────────────────────────────
 

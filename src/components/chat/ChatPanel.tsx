@@ -55,6 +55,26 @@ export function ChatPanel() {
     return () => document.removeEventListener('wandr:focus-chat', handler)
   }, [])
 
+  // Pre-fill the textarea from DayCard rain-warning "Get alternatives →" button
+  useEffect(() => {
+    function handler(e: Event) {
+      const msg = (e as CustomEvent<{ message: string }>).detail?.message
+      if (!msg) return
+      setInput(msg)
+      // Resize the textarea to fit the pre-filled text on the next frame
+      // (after React renders the new `input` value into the DOM)
+      requestAnimationFrame(() => {
+        const el = textareaRef.current
+        if (!el) return
+        el.style.height = 'auto'
+        el.style.height = `${Math.min(el.scrollHeight, 120)}px`
+        el.focus()
+      })
+    }
+    document.addEventListener('wandr:chat-prompt', handler)
+    return () => document.removeEventListener('wandr:chat-prompt', handler)
+  }, [])
+
   async function handleSend(e?: FormEvent) {
     e?.preventDefault()
     const text = input.trim()

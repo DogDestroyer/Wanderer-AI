@@ -1,6 +1,7 @@
 'use client'
 
 import { useStore } from '@/lib/store'
+import { useWeather } from '@/hooks/useWeather'
 import { Header } from './Header'
 import { Sidebar } from './Sidebar'
 import { WelcomeScreen } from '@/components/trips/WelcomeScreen'
@@ -12,6 +13,9 @@ export function AppShell() {
   const activeTripId = useStore((s) => s.activeTripId)
   const trips = useStore((s) => s.trips)
   const activeTrip = activeTripId ? trips[activeTripId] : null
+
+  // Fetch weather forecast for the active trip (no-op when dates are out of range)
+  useWeather(activeTrip)
 
   // ── Skeleton until localStorage has been read ───────────────────────────────
   if (!hasHydrated) {
