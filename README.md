@@ -1,36 +1,241 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Wandr — AI Travel Planner
 
-## Getting Started
+> A portfolio-quality AI travel planning app. Describe a trip in plain English and get a full day-by-day itinerary in seconds — then drag, drop, and edit it in real time.
 
-First, run the development server:
+[![Next.js](https://img.shields.io/badge/Next.js-16-black?logo=next.js)](https://nextjs.org/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5-blue?logo=typescript)](https://www.typescriptlang.org/)
+[![Claude](https://img.shields.io/badge/Powered%20by-Claude%20AI-orange)](https://anthropic.com)
+[![Tailwind CSS](https://img.shields.io/badge/Tailwind-v4-38bdf8?logo=tailwindcss)](https://tailwindcss.com/)
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+---
+
+## Features
+
+| Feature | Details |
+|---|---|
+| 🤖 **AI itinerary generation** | Chat with Claude to build a full day-by-day trip plan. The AI asks clarifying questions and structures every activity with times, costs, and travel estimates. |
+| ✏️ **Drag & drop editing** | Reorder activities within a day or move them between days. Timing conflicts surface automatically. |
+| 💰 **Live budget tracker** | Every activity carries a cost estimate. Daily totals and a trip cap update in real time as you edit. |
+| 🗺️ **Interactive map** | All activities plotted on an OpenStreetMap tile layer with numbered markers, color-coded day routes, and animated polylines. |
+| 🌤️ **Live weather forecasts** | Open-Meteo fetches a 16-day forecast for the trip's location. Each day card shows high/low temps + precipitation. Outdoor activities on rainy days trigger an inline swap suggestion. |
+| 🎚️ **Pace & budget sliders** | Adjust trip pace (relaxed → packed) and budget style (shoestring → luxury) — the AI re-plans the entire trip around your preferences. |
+| 🔒 **Activity locking** | Lock any activity before asking the AI to regenerate. Locked items are never removed or moved. |
+| 🍞 **Toast notifications** | Framer Motion–animated toasts confirm actions (re-plan triggered, trip saved, etc.). |
+
+---
+
+## Tech Stack
+
+### Frontend
+- **[Next.js 16](https://nextjs.org/)** — App Router, React Server Components, Turbopack
+- **[React 19](https://react.dev/)** — Concurrent features, `useCallback`, `useRef`
+- **[TypeScript 5](https://www.typescriptlang.org/)** — Strict mode throughout
+- **[Tailwind CSS v4](https://tailwindcss.com/)** — `@import "tailwindcss"`, no config file
+- **[Framer Motion 12](https://www.framer-motion.com/)** — Page transitions, stagger animations, toast system
+- **[Zustand 5](https://zustand-demo.pmnd.rs/)** — Global state with `persist` + `skipHydration`
+- **[@dnd-kit](https://dndkit.com/)** — Drag & drop with `SortableContext`, cross-container moves
+- **[React Leaflet 5](https://react-leaflet.js.org/)** — SSR-disabled map via `next/dynamic`
+- **[Lucide React](https://lucide.dev/)** — Icon system
+
+### Backend / APIs
+- **[Anthropic Claude API](https://docs.anthropic.com/)** — `claude-opus-4-8`, streaming responses, structured JSON output
+- **[Open-Meteo](https://open-meteo.com/)** — Free weather API, no key required, CORS-enabled
+- **[OpenStreetMap](https://www.openstreetmap.org/) + [OpenTopoMap](https://opentopomap.org/)** — Free map tiles, no key required
+
+### Infrastructure
+- **[Vercel](https://vercel.com/)** — Zero-config deployment, Edge Middleware for auth
+- **`HttpOnly` cookie auth** — Optional demo password gate, 30-day session
+
+---
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                         Browser (CSR)                           │
+│                                                                 │
+│  AppShell                                                       │
+│  ├── Header          (trip title, tabs: Itinerary / Map)        │
+│  ├── Sidebar         (trip list, new trip, delete)              │
+│  ├── ItineraryView   (day cards, DnD context, sliders)          │
+│  │   └── DayCard[]   (weather chip, activity list, rain banner) │
+│  │       └── SortableActivityCard → ActivityCard                │
+│  ├── MapPanel        (dynamic import, ssr: false)               │
+│  │   └── TripMap     (Leaflet markers, polylines, popups)       │
+│  └── ChatPanel       (streaming messages, wandr:* events)       │
+│                                                                 │
+│  Zustand store  ←──────── localStorage (persist)               │
+│  ├── trips{}          TripPlan (days[], activities[], weather)  │
+│  ├── chatHistory{}    ChatMessage[] keyed by tripId             │
+│  └── activeTripId                                               │
+└──────────────────────────────┬──────────────────────────────────┘
+                               │  fetch /api/chat  (SSE stream)
+┌──────────────────────────────▼──────────────────────────────────┐
+│                      Next.js API Route                          │
+│                      src/app/api/chat/route.ts                  │
+│                                                                 │
+│  1. Receive messages[] + trip context                           │
+│  2. Call Anthropic SDK  (claude-opus-4-8, streaming)            │
+│  3. Stream delta chunks → client as SSE  data: {type,text}      │
+│  4. On stream end: parse ---WANDR-JSON--- marker                │
+│  5. Emit  data: {type:"done", response: AgentTripResponse}      │
+│                                                                 │
+│  AgentTripResponse:                                             │
+│  { action: "create"|"patch"|"none", trip?, patch?, message }   │
+└──────────────────────────────┬──────────────────────────────────┘
+                               │
+┌──────────────────────────────▼──────────────────────────────────┐
+│                      Anthropic Claude API                       │
+│  Model: claude-opus-4-8   Streaming: true                       │
+│  System prompt instructs JSON schema compliance + field rules   │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+### Key Design Decisions
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+**Streaming with structured output** — The API route streams Claude's text to the chat bubble in real time, then parses a `---WANDR-JSON---` marker at the end of the stream to extract the structured trip data. This gives instant visual feedback while still delivering reliable machine-readable output.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+**Custom DOM events as a decoupled event bus** — Components that need to communicate across the tree (e.g., a rain banner in a day card triggering a pre-filled chat message) use `document.dispatchEvent` / `document.addEventListener` with namespaced `wandr:*` events. No prop drilling, no context coupling.
 
-## Learn More
+**`handleSendRef` pattern for stale closures** — `ChatPanel`'s `handleSend` function is wrapped in `useCallback` and also stored in a `useRef`. Event listeners for `wandr:send-message` always call `handleSendRef.current` so they access the latest closure without needing to be re-registered.
 
-To learn more about Next.js, take a look at the following resources:
+**Weather fetched once per trip+date key** — `useWeather` keeps a `Set<string>` keyed on `tripId::startDate::endDate` inside a `useRef` so it never fires more than once per unique trip window, surviving re-renders and React Strict Mode double-invocations.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+**Zustand `skipHydration`** — The store uses `skipHydration: true` so Next.js SSR renders a loading skeleton instead of stale localStorage data, then hydrates on the client without a flash of wrong state.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+---
 
-## Deploy on Vercel
+## Project Structure
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+```
+src/
+├── app/
+│   ├── api/
+│   │   ├── auth/route.ts       # POST /api/auth — validates DEMO_PASSWORD, sets cookie
+│   │   └── chat/route.ts       # POST /api/chat — Anthropic streaming proxy
+│   ├── login/page.tsx          # Password gate (only shown when DEMO_PASSWORD is set)
+│   ├── proxy.ts                # Edge Middleware — redirects unauthenticated requests
+│   ├── globals.css             # Tailwind v4 import + design tokens + utility classes
+│   ├── layout.tsx              # Root layout (Geist font, metadata)
+│   └── page.tsx                # Renders <AppShell />
+│
+├── components/
+│   ├── chat/
+│   │   └── ChatPanel.tsx       # Streaming chat UI, wandr:* event bus integration
+│   ├── itinerary/
+│   │   ├── ActivityCard.tsx    # Single activity display + TravelConnector
+│   │   ├── DayCard.tsx         # Day header, weather chip, rain banner, activity list
+│   │   ├── ItineraryView.tsx   # Tab shell, DnD context, stagger animations
+│   │   └── SortableActivityCard.tsx  # dnd-kit sortable wrapper
+│   ├── layout/
+│   │   ├── AppShell.tsx        # Root layout shell, useWeather hook
+│   │   ├── Header.tsx          # Trip title + tab switcher
+│   │   └── Sidebar.tsx         # Trip list with create/delete
+│   ├── map/
+│   │   ├── MapPanel.tsx        # SSR-safe dynamic wrapper
+│   │   └── TripMap.tsx         # Leaflet map, markers, polylines, FitBounds
+│   ├── preferences/
+│   │   └── PreferenceSliders.tsx  # Pace + budget sliders, Apply button
+│   ├── trips/
+│   │   └── WelcomeScreen.tsx   # Hero + feature grid (shown when no active trip)
+│   └── ui/
+│       └── Toast.tsx           # ToastContainer + showToast helper
+│
+├── hooks/
+│   └── useWeather.ts           # Fetch + cache weather for active trip
+│
+└── lib/
+    ├── store.ts                # Zustand store — trips, chat, preferences, weather
+    ├── types.ts                # TripPlan, Activity, ChatMessage, WeatherForecast, …
+    └── utils.ts                # cn(), formatTime(), getPaceLabel(), getBudgetLabel(), …
+```
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+---
+
+## Local Development
+
+### Prerequisites
+- Node.js 20+
+- An [Anthropic API key](https://console.anthropic.com)
+
+### Setup
+
+```bash
+# 1. Clone the repo
+git clone https://github.com/YOUR_USERNAME/wandr.git
+cd wandr
+
+# 2. Install dependencies
+npm install
+
+# 3. Create your local env file
+cp .env.local.example .env.local
+# Open .env.local and paste your Anthropic API key
+
+# 4. Start the dev server
+npm run dev
+```
+
+Open [http://localhost:3000](http://localhost:3000). No password is required locally — the demo gate only activates when `DEMO_PASSWORD` is set in your Vercel environment variables.
+
+---
+
+## Deploying to Vercel
+
+### 1. Push to GitHub
+
+```bash
+# Create a new repo on github.com, then:
+git remote add origin https://github.com/YOUR_USERNAME/wandr.git
+git push -u origin master
+```
+
+### 2. Import to Vercel
+
+1. Go to [vercel.com/new](https://vercel.com/new) → **Import Git Repository**
+2. Select your `wandr` repo — Vercel auto-detects Next.js, no settings to change
+3. Expand **Environment Variables** and add:
+
+| Variable | Value |
+|---|---|
+| `ANTHROPIC_API_KEY` | `sk-ant-...` (your real key) |
+| `DEMO_PASSWORD` | Any passcode you want (e.g. `wandr2024`) |
+
+4. Click **Deploy**
+
+Vercel runs `npm run build` (which includes the prebuild script) and deploys automatically. Every `git push` to `master` triggers a new deployment.
+
+### 3. Sharing the URL
+
+Anyone who visits your Vercel URL sees a password prompt. They enter the `DEMO_PASSWORD` you set and the full app unlocks for 30 days via an `HttpOnly` cookie.
+
+---
+
+## Environment Variables
+
+| Variable | Required | Description |
+|---|---|---|
+| `ANTHROPIC_API_KEY` | ✅ Yes | Your Anthropic API key — [console.anthropic.com](https://console.anthropic.com) |
+| `DEMO_PASSWORD` | ⬜ Optional | Password gate for the public deployment. Leave unset in local dev. |
+
+---
+
+## Milestones
+
+Built milestone-by-milestone with [Claude Code](https://claude.ai/code):
+
+| # | Milestone | Commit |
+|---|---|---|
+| 1–2 | Project scaffold, data model, app shell | `9d66b20` |
+| 3–6 | AI chat, itinerary view, drag & drop, budget tracker | `3c5df0c` |
+| 7 | Interactive map (Leaflet + OpenStreetMap) | `cb4fabd` |
+| 8 | Live weather forecasts (Open-Meteo) | `45f66ca` |
+| 9 | Pace & budget sliders with AI re-planning | `19db79c` |
+| 10 | Polish — animations, toasts, micro-interactions | `123f3c4` |
+| 11 | Deploy to Vercel + README | *(this commit)* |
+
+---
+
+## License
+
+MIT — free to use, fork, and learn from.
