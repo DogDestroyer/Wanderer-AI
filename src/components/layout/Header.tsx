@@ -34,6 +34,7 @@ export function Header({ chatOpen, onToggleChat }: HeaderProps) {
 
   function handleNewTrip() {
     setDropdownOpen(false)
+    setActiveTrip(null)  // clear active trip so AI plans a fresh one, not a patch
     document.dispatchEvent(new CustomEvent('wandr:focus-chat'))
   }
 

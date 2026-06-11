@@ -7,10 +7,8 @@ const client = new Anthropic({
 })
 
 // ─── System prompt ─────────────────────────────────────────────────────────────
-// Instructs Claude to respond as Wandr and emit a structured JSON block at the end
-// of every response so the frontend can apply trip changes.
 
-const BASE_SYSTEM_PROMPT = `You are Wandr, an expert AI travel planning assistant. Your job is to help users create detailed, realistic, day-by-day travel itineraries.
+const BASE_SYSTEM_PROMPT = `You are Hodo, an expert AI travel planning assistant. Your job is to help users create detailed, realistic, day-by-day travel itineraries.
 
 ## Tone
 Be warm, enthusiastic, and specific. Name real places. Use concrete times and costs.
@@ -23,26 +21,48 @@ Every response has exactly two parts:
 
 **Part 2** — On its own line, the literal marker:
 ---WANDR-JSON---
-Immediately followed by a single JSON object (no markdown fences) that matches the AgentTripResponse schema below.
+Immediately followed by a single JSON object (no markdown fences, no backticks) that matches the AgentTripResponse schema below.
 
-Do NOT include any text after the JSON object.
+Do NOT include any text after the JSON object. Do NOT wrap the JSON in markdown code fences.
 
 ## AgentTripResponse schema
 
 {
-  "action": "create" | "patch" | "chat-only",
+  "action": "create_trip" | "replace_trip" | "replace_day_activities" | "update_trip_meta" | "chat-only",
   "message": "<same text as Part 1>",
-  "trip": { ... },                          // only when action = "create"
-  "patch": { ... },                         // only when action = "patch"
-  "clarifyingQuestions": ["..."]            // optional, for chat-only when you need more info
+  "trip": { ... },     // only for create_trip or replace_trip — full TripPlan
+  "patch": { ... },    // only for replace_day_activities or update_trip_meta
+  "clarifyingQuestions": ["..."]  // optional, only for chat-only
 }
 
-### action values
-- **"create"** — user wants a new trip and has given enough info (destination + rough duration).
-- **"patch"** — user wants to modify an existing trip.
-- **"chat-only"** — conversational reply, no plan change (questions, unclear requests, etc.).
+## Action decision tree
 
-## TripPlan (for action: "create")
+Choose the action that best matches the user's intent:
+
+**"create_trip"**: User wants a brand-new itinerary (will be saved alongside any existing trips).
+→ Use when: "plan me a trip to X", "I want to go to Y", "make an itinerary for Z", or any trip planning request when there is NO current active trip.
+→ Generate a full TripPlan object in the "trip" field.
+
+**"replace_trip"**: User explicitly wants to replace their current trip with a completely new plan.
+→ Use when: "redo this whole plan", "start over with X days instead", "actually let's go to X instead", "rebuild this from scratch".
+→ Generate a full TripPlan object in the "trip" field. The current trip's activities will be overwritten.
+
+**"replace_day_activities"**: User wants to modify specific activities on specific days of the CURRENT trip.
+→ Use when: "change day 3", "add a museum on Tuesday", "remove the Colosseum visit", "swap the beach day for something indoors", "add more food spots".
+→ Populate "patch.days" with ONLY the affected days, using the real day IDs from the current trip. Do NOT include unaffected days.
+
+**"update_trip_meta"**: User wants to change only the trip name, dates, destination, or budget — NOT the daily activities.
+→ Use when: "rename this trip", "change the start date to June 10", "update the budget to $3000", "add 2 extra days".
+→ Populate "patch" with only the fields that changed.
+
+**"chat-only"**: Conversational response — no trip changes.
+→ Use when: answering general travel questions, request is too vague to act on, you need clarification before planning.
+→ Optionally include "clarifyingQuestions" to prompt the user for more detail.
+
+## When there is NO current active trip
+Always use **"create_trip"**. Never use replace_trip, replace_day_activities, or update_trip_meta when there is no trip to modify.
+
+## TripPlan (for create_trip and replace_trip)
 
 {
   "id": "trip_<8 unique lowercase hex chars>",
@@ -113,25 +133,25 @@ Do NOT include any text after the JSON object.
 - Set weatherSensitive: true for open-air markets, beach days, walking tours, etc.
 - Use accurate latitude/longitude coordinates
 
-## AgentTripPatch (for action: "patch")
+## AgentTripPatch (for replace_day_activities and update_trip_meta)
 
 {
-  "tripId": "trip_abc12345",
-  "name": "Updated Name",         // optional
-  "days": [ /* replaced days */ ],// optional — full replacement of affected days
-  "dayIds": ["day_abc123"],       // list of day IDs that changed
-  "budget": { ... },              // optional
-  "preferences": { ... }          // optional
+  "tripId": "<the current trip's id>",
+  "name": "Updated Name",              // optional — update_trip_meta only
+  "destination": { ... },              // optional — update_trip_meta only
+  "startDate": "YYYY-MM-DD",           // optional — update_trip_meta only
+  "endDate": "YYYY-MM-DD",             // optional — update_trip_meta only
+  "days": [ /* only the affected Day objects with new activities */ ],
+  "dayIds": ["day_abc123"],            // list of day IDs that changed
+  "budget": { ... },                   // optional
+  "preferences": { ... }               // optional
 }`
 
 // ─── Dynamic settings prompt ──────────────────────────────────────────────────
-// Translates the user's AgentSettings toggles into system prompt instructions.
-// Only active (non-default) settings add text — everything else is left to Claude.
 
 function buildSettingsPrompt(s: AgentSettings): string {
   const lines: string[] = []
 
-  // Planning
   const paceMap = { light: '2–4', moderate: '5–7', packed: '8–10' }
   if (s.activitiesPerDay !== 'auto') {
     lines.push(`- Plan ${paceMap[s.activitiesPerDay]} activities per day`)
@@ -140,7 +160,6 @@ function buildSettingsPrompt(s: AgentSettings): string {
   if (s.includeMeals)     lines.push('- Explicitly include breakfast, lunch, and dinner recommendations')
   if (s.includeTransport) lines.push('- Include transit/walking steps between activities')
 
-  // Sources & Style — collect active ones
   const styles: string[] = []
   if (s.mainstream)     styles.push('well-known tourist highlights and iconic landmarks')
   if (s.hiddenGems)     styles.push('hidden gems, local favourites, and off-the-beaten-path spots')
@@ -168,11 +187,11 @@ export async function POST(request: Request): Promise<Response> {
 
   const { messages, trip, agentSettings = DEFAULT_AGENT_SETTINGS } = body
 
-  // Build the full system prompt: base + user settings + trip context
   const settingsPrompt = buildSettingsPrompt(agentSettings)
+  const today = new Date().toISOString().split('T')[0]
   const systemPrompt = trip
-    ? `${BASE_SYSTEM_PROMPT}${settingsPrompt}\n\n## Current trip the user is editing\n${JSON.stringify(trip, null, 2)}`
-    : `${BASE_SYSTEM_PROMPT}${settingsPrompt}\n\nToday's date: ${new Date().toISOString().split('T')[0]}`
+    ? `${BASE_SYSTEM_PROMPT}${settingsPrompt}\n\n## Current active trip\n\nThe user currently has this trip open. Use its day IDs when patching days.\n\n${JSON.stringify(trip, null, 2)}`
+    : `${BASE_SYSTEM_PROMPT}${settingsPrompt}\n\nNo active trip. Today's date: ${today}. Always use action "create_trip".`
 
   const encoder = new TextEncoder()
 
@@ -185,14 +204,14 @@ export async function POST(request: Request): Promise<Response> {
       try {
         const stream = client.messages.stream({
           model: 'claude-opus-4-8',
-          max_tokens: 8000,
+          max_tokens: 20000,
           thinking: { type: 'adaptive' },
           system: systemPrompt,
           messages,
         })
 
         let fullText = ''
-        let visibleText = ''  // text shown to user before the JSON marker
+        let visibleText = ''
         let markerFound = false
 
         for await (const event of stream) {
@@ -206,11 +225,9 @@ export async function POST(request: Request): Promise<Response> {
             if (!markerFound) {
               const markerIdx = fullText.indexOf('---WANDR-JSON---')
               if (markerIdx === -1) {
-                // Marker not yet seen — stream this chunk to the client
                 visibleText += chunk
                 send({ type: 'delta', text: chunk })
               } else {
-                // Marker found in this chunk — send any remaining visible text before the marker
                 markerFound = true
                 const newVisible = fullText.slice(visibleText.length, markerIdx)
                 if (newVisible) {
@@ -219,30 +236,36 @@ export async function POST(request: Request): Promise<Response> {
                 }
               }
             }
-            // After marker is found, keep accumulating fullText silently (building JSON)
           }
         }
 
         // ── Parse the structured JSON block ────────────────────────────────────
         const MARKER = '---WANDR-JSON---'
         const markerIdx = fullText.indexOf(MARKER)
-        let agentResponse: AgentTripResponse
+        const naturalMessage = markerIdx !== -1
+          ? fullText.slice(0, markerIdx).trim()
+          : fullText.trim()
 
-        if (markerIdx !== -1) {
-          const jsonStr = fullText.slice(markerIdx + MARKER.length).trim()
-          const naturalMessage = fullText.slice(0, markerIdx).trim()
-          try {
-            agentResponse = JSON.parse(jsonStr) as AgentTripResponse
-            // Prefer the streamed natural-language text as the displayed message
-            if (naturalMessage) agentResponse.message = naturalMessage
-          } catch {
-            agentResponse = { action: 'chat-only', message: naturalMessage || fullText.trim() }
-          }
-        } else {
-          agentResponse = { action: 'chat-only', message: fullText.trim() }
+        if (markerIdx === -1) {
+          // Model never emitted the marker at all — treat as chat-only
+          send({ type: 'done', response: { action: 'chat-only', message: naturalMessage } satisfies AgentTripResponse })
+          return
         }
 
-        send({ type: 'done', response: agentResponse })
+        const jsonStr = fullText.slice(markerIdx + MARKER.length).trim()
+        let agentResponse: AgentTripResponse
+
+        try {
+          agentResponse = JSON.parse(jsonStr) as AgentTripResponse
+          // Always prefer the streamed natural-language text as the displayed message
+          if (naturalMessage) agentResponse.message = naturalMessage
+          send({ type: 'done', response: agentResponse })
+        } catch (parseErr) {
+          // JSON parse failed — emit a json_error event so the client can retry
+          const errMsg = parseErr instanceof Error ? parseErr.message : String(parseErr)
+          console.error('[/api/chat] JSON parse failed:', errMsg, '\nRaw JSON (first 500):', jsonStr.slice(0, 500))
+          send({ type: 'json_error', naturalMessage, parseError: errMsg })
+        }
       } catch (err) {
         const message = err instanceof Error ? err.message : 'An unexpected error occurred'
         send({ type: 'error', message })

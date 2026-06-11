@@ -169,24 +169,41 @@ export interface ChatMessage {
 }
 
 // ─── What the AI agent returns ───────────────────────────────────────────────
-// action = 'create'     → brand-new trip (trip field is populated)
-// action = 'patch'      → update part of existing trip (patch field is populated)
-// action = 'chat-only'  → conversational response, no plan change
+//
+// action = 'create_trip'           → brand-new trip saved alongside any existing trips
+// action = 'replace_trip'          → overwrite the current trip wholesale
+// action = 'replace_day_activities'→ replace activities on specific days of the current trip
+// action = 'update_trip_meta'      → change trip name / dates / destination / budget only
+// action = 'chat-only'             → conversational response, no plan change
+//
+// Legacy (keep for backward compat):
+// action = 'create'  → same as create_trip
+// action = 'patch'   → same as replace_day_activities / update_trip_meta
 
 export interface AgentTripPatch {
   tripId: string
   name?: string
-  days?: Day[]               // full replacement for specified days
-  dayIds?: string[]          // which day IDs were updated (for partial patches)
+  destination?: TripDestination  // allowed in update_trip_meta
+  startDate?: string             // allowed in update_trip_meta
+  endDate?: string               // allowed in update_trip_meta
+  days?: Day[]                   // full replacement for specified days
+  dayIds?: string[]              // which day IDs were updated (informational)
   suggestions?: AgentSuggestion[]
   budget?: TripBudget
   preferences?: Partial<TripPreferences>
 }
 
 export interface AgentTripResponse {
-  action: 'create' | 'patch' | 'chat-only'
-  trip?: TripPlan
-  patch?: AgentTripPatch
+  action:
+    | 'create_trip'
+    | 'replace_trip'
+    | 'replace_day_activities'
+    | 'update_trip_meta'
+    | 'chat-only'
+    | 'create'   // legacy
+    | 'patch'    // legacy
+  trip?: TripPlan       // populated for create_trip / replace_trip
+  patch?: AgentTripPatch // populated for replace_day_activities / update_trip_meta / legacy patch
   message: string
   clarifyingQuestions?: string[]
 }

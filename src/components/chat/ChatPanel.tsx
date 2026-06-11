@@ -79,12 +79,39 @@ export function ChatPanel() {
 
   const handleSendRef = useRef<((e?: FormEvent, override?: string) => Promise<void>) | null>(null)
 
+  // ── Apply a completed AgentTripResponse to the store ──────────────────────
+  const applyTripResponse = useCallback((response: AgentTripResponse, chatId: string, currentActiveTripId: string | null) => {
+    // Always update the displayed message first (before createTrip migrates chatHistory keys)
+    updateLastAssistantMessage(chatId, response.message, false)
+
+    const { action, trip, patch } = response
+
+    if ((action === 'create_trip' || action === 'create') && trip) {
+      // New trip — add alongside existing trips, switch to it
+      createTrip(trip)
+    } else if (action === 'replace_trip' && trip && currentActiveTripId) {
+      // Overwrite the current trip in-place (keep same trip ID so chat history stays linked)
+      const { id: _newId, createdAt: _ca, ...rest } = trip
+      updateTrip(currentActiveTripId, rest as Partial<import('@/lib/types').TripPlan>)
+    } else if (
+      (action === 'replace_day_activities' || action === 'update_trip_meta' || action === 'patch') &&
+      patch && currentActiveTripId
+    ) {
+      // Partial update — strip non-TripPlan fields and merge
+      const { tripId: _tid, dayIds: _dids, ...tripFields } = patch
+      updateTrip(currentActiveTripId, tripFields as Partial<import('@/lib/types').TripPlan>)
+    }
+    // 'chat-only' — nothing to update
+  }, [createTrip, updateTrip, updateLastAssistantMessage])
+
   const handleSend = useCallback(async (e?: FormEvent, override?: string) => {
     e?.preventDefault()
     const text = (override ?? input).trim()
     if (!text || isGenerating) return
 
     const chatId = activeTripId ?? '__new__'
+    const snapshotActiveTripId = activeTripId  // capture for closures — may change after createTrip
+
     const userMessage: ChatMessage = {
       id: crypto.randomUUID(),
       role: 'user',
@@ -107,16 +134,17 @@ export function ChatPanel() {
     }
     addChatMessage(chatId, assistantMessage)
 
-    const historyToSend = [...messages, userMessage].map((m) => ({
+    const baseHistory = [...messages, userMessage].map((m) => ({
       role: m.role as 'user' | 'assistant',
       content: m.content,
     }))
 
-    try {
+    // ── Stream processor — returns true on success, false on json_error ──────
+    async function runStream(messagesToSend: Array<{ role: 'user' | 'assistant'; content: string }>) {
       const res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages: historyToSend, trip: activeTrip ?? null, agentSettings }),
+        body: JSON.stringify({ messages: messagesToSend, trip: activeTrip ?? null, agentSettings }),
       })
 
       if (!res.ok || !res.body) throw new Error(`Server error: ${res.status}`)
@@ -125,6 +153,14 @@ export function ChatPanel() {
       const decoder = new TextDecoder()
       let buffer = ''
       let streamedText = ''
+
+      type StreamPayload =
+        | { type: 'delta'; text: string }
+        | { type: 'done'; response: AgentTripResponse }
+        | { type: 'error'; message: string }
+        | { type: 'json_error'; naturalMessage: string; parseError?: string }
+
+      let jsonError: { naturalMessage: string } | null = null
 
       // eslint-disable-next-line no-constant-condition
       while (true) {
@@ -136,32 +172,50 @@ export function ChatPanel() {
 
         for (const line of lines) {
           if (!line.startsWith('data: ')) continue
-          const payload = JSON.parse(line.slice(6)) as {
-            type: 'delta' | 'done' | 'error'
-            text?: string
-            response?: AgentTripResponse
-            message?: string
-          }
+          const payload = JSON.parse(line.slice(6)) as StreamPayload
 
-          if (payload.type === 'delta' && payload.text) {
+          if (payload.type === 'delta') {
             streamedText += payload.text
             updateLastAssistantMessage(chatId, streamedText)
+          } else if (payload.type === 'done') {
+            applyTripResponse(payload.response, chatId, snapshotActiveTripId)
+          } else if (payload.type === 'json_error') {
+            jsonError = { naturalMessage: payload.naturalMessage }
+          } else if (payload.type === 'error') {
+            updateLastAssistantMessage(chatId, 'Sorry, something went wrong — please try again.', false)
           }
+        }
+      }
 
-          if (payload.type === 'done' && payload.response) {
-            const response = payload.response
-            updateLastAssistantMessage(chatId, response.message, false)
-            if (response.action === 'create' && response.trip) {
-              createTrip(response.trip)
-            } else if (response.action === 'patch' && response.patch && activeTripId) {
-              const { tripId: _id, dayIds: _dayIds, ...tripFields } = response.patch
-              updateTrip(activeTripId, tripFields as Partial<import('@/lib/types').TripPlan>)
-            }
-          }
+      return jsonError
+    }
 
-          if (payload.type === 'error') {
-            updateLastAssistantMessage(chatId, "Sorry, something went wrong — please try again.", false)
-          }
+    try {
+      // ── First attempt ─────────────────────────────────────────────────────
+      const jsonError = await runStream(baseHistory)
+
+      if (jsonError) {
+        // ── Auto-retry once with the parse error fed back to the model ──────
+        const naturalMessage = jsonError.naturalMessage
+        updateLastAssistantMessage(chatId, naturalMessage + '\n\n*(Applying your plan…)*', false)
+        showToast({ message: 'Applying your plan…', type: 'info' })
+
+        const retryHistory: Array<{ role: 'user' | 'assistant'; content: string }> = [
+          ...baseHistory,
+          { role: 'assistant', content: naturalMessage },
+          {
+            role: 'user',
+            content:
+              'Your previous response was cut off before the JSON block. Please resend the complete response — include the ---WANDR-JSON--- marker on its own line and the full JSON object with all days and activities. Do not truncate.',
+          },
+        ]
+
+        const retryError = await runStream(retryHistory)
+
+        if (retryError) {
+          // Both attempts failed — show natural message and let user retry
+          updateLastAssistantMessage(chatId, retryError.naturalMessage, false)
+          showToast({ message: 'Plan generated but could not be applied — please try again.', type: 'warning' })
         }
       }
     } catch {
@@ -170,7 +224,7 @@ export function ChatPanel() {
       setIsGenerating(false)
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [input, isGenerating, activeTripId, messages])
+  }, [input, isGenerating, activeTripId, activeTrip, messages, agentSettings, applyTripResponse])
 
   useEffect(() => { handleSendRef.current = handleSend }, [handleSend])
 
