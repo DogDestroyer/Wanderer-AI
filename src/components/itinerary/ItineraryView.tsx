@@ -14,7 +14,7 @@ import {
   type DragEndEvent,
 } from '@dnd-kit/core'
 import { arrayMove } from '@dnd-kit/sortable'
-import { MapPin, Calendar, DollarSign, Gauge, Star, Plane } from 'lucide-react'
+import { MapPin, Calendar, DollarSign, Gauge, Star, Plane, Map } from 'lucide-react'
 import type { TripPlan, Day, Activity } from '@/lib/types'
 import { useStore } from '@/lib/store'
 import {
@@ -29,6 +29,7 @@ import { calculateTripBudget } from '@/lib/recalculate'
 import { DayCard } from './DayCard'
 import { ActivityCard } from './ActivityCard'
 import { BudgetPanel } from './BudgetPanel'
+import { MapPanel } from '@/components/map/MapPanel'
 
 interface ItineraryViewProps {
   trip: TripPlan
@@ -41,7 +42,7 @@ export function ItineraryView({ trip }: ItineraryViewProps) {
   const moveActivity = useStore((s) => s.moveActivity)
 
   // ── Tab state ────────────────────────────────────────────────────────────────
-  const [activeTab, setActiveTab] = useState<'itinerary' | 'budget'>('itinerary')
+  const [activeTab, setActiveTab] = useState<'itinerary' | 'budget' | 'map'>('itinerary')
 
   // ── Local day state for live drag preview ────────────────────────────────────
   // We maintain a copy of days so cross-day moves preview before committing.
@@ -261,11 +262,21 @@ export function ItineraryView({ trip }: ItineraryViewProps) {
           <TabButton active={activeTab === 'budget'} onClick={() => setActiveTab('budget')}>
             Budget
           </TabButton>
+          <TabButton active={activeTab === 'map'} onClick={() => setActiveTab('map')}>
+            Map
+          </TabButton>
         </div>
       </div>
 
       {/* ── Budget panel ─────────────────────────────────────────────────────── */}
       {activeTab === 'budget' && <BudgetPanel trip={trip} />}
+
+      {/* ── Map panel ────────────────────────────────────────────────────────── */}
+      {activeTab === 'map' && (
+        <div className="flex-1 min-h-0">
+          <MapPanel trip={trip} />
+        </div>
+      )}
 
       {/* ── Day list ──────────────────────────────────────────────────────────── */}
       {activeTab === 'itinerary' && (
