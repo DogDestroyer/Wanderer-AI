@@ -68,7 +68,10 @@ export function useChatSend() {
   }, [createTrip, updateTrip, updateLastAssistantMessage, setUserDefaults])
 
   // ── Core send function ───────────────────────────────────────────────────────
-  const sendMessage = useCallback(async (text: string) => {
+  // `intent` selects the model tier on the server: 'full' (default) uses Sonnet
+  // for full trip generation; 'quick' uses the faster Haiku for small partial
+  // edits (assumption-chip corrections, single-day tweaks, preference re-plans).
+  const sendMessage = useCallback(async (text: string, intent: 'full' | 'quick' = 'full') => {
     if (!text.trim() || isGenerating) return
 
     const chatId              = activeTripId ?? '__new__'
@@ -111,6 +114,7 @@ export function useChatSend() {
           trip: activeTrip ?? null,
           agentSettings,
           preferences: activePreferences,
+          intent,
         }),
       })
 

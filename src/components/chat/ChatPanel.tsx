@@ -62,24 +62,26 @@ export function ChatPanel() {
   }, [])
 
   // wandr:send-message — programmatic send (e.g. from DayCard or ItineraryView)
-  const handleSendRef = useRef<((text: string) => void) | null>(null)
+  const handleSendRef = useRef<((text: string, intent?: 'full' | 'quick') => void) | null>(null)
 
-  async function handleSend(override?: string) {
+  async function handleSend(override?: string, intent: 'full' | 'quick' = 'full') {
     const text = (override ?? input).trim()
     if (!text || isGenerating) return
     if (!override) setInput('')
     // Height auto-resets via useLayoutEffect in ChatInput when value becomes ''
-    await sendMessage(text)
+    await sendMessage(text, intent)
   }
 
   useEffect(() => {
-    handleSendRef.current = (text: string) => handleSend(text)
+    handleSendRef.current = (text: string, intent: 'full' | 'quick' = 'full') => handleSend(text, intent)
   })
 
   useEffect(() => {
     function handler(e: Event) {
-      const msg = (e as CustomEvent<{ message: string }>).detail?.message
-      if (msg) handleSendRef.current?.(msg)
+      const detail = (e as CustomEvent<{ message: string; intent?: 'full' | 'quick' }>).detail
+      const msg = detail?.message
+      // Programmatic sends from chips/day-edits are localized changes → 'quick' tier.
+      if (msg) handleSendRef.current?.(msg, detail?.intent ?? 'quick')
     }
     document.addEventListener('wandr:send-message', handler)
     return () => document.removeEventListener('wandr:send-message', handler)

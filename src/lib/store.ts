@@ -66,6 +66,7 @@ interface AppState {
   // ── Chat ──
   addChatMessage: (tripId: string, message: ChatMessage) => void
   updateLastAssistantMessage: (tripId: string, content: string, isStreaming?: boolean) => void
+  clearChatThread: (key: string) => void
   setIsGenerating: (v: boolean) => void
 
   // ── Weather ──
@@ -308,6 +309,12 @@ export const useStore = create<AppState>()(
               [tripId]: messages.map((m, i) => (i === last ? updated : m)),
             },
           }
+        }),
+
+      clearChatThread: (key) =>
+        set((s) => {
+          const { [key]: _removed, ...rest } = s.chatHistory
+          return { chatHistory: rest }
         }),
 
       setIsGenerating: (v) => set({ isGenerating: v }),

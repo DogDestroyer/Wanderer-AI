@@ -1,0 +1,284 @@
+import { test, expect, type ConsoleMessage, type Request } from '@playwright/test'
+
+// ─── Chat input reproduction test ─────────────────────────────────────────────
+// Reproduces the "pressing Enter reloads the page / clears the chat" bug and
+// proves the fix. Parameterised by BASE_URL so it can run against dev, a local
+// production build, or the live Vercel deployment.
+//
+//   BASE_URL=http://localhost:3000           npx playwright test
+//   BASE_URL=http://localhost:3100           npx playwright test
+//   DEMO_PASSWORD=xxx BASE_URL=https://...    npx playwright test
+//
+// What it asserts after typing a message and pressing Enter:
+//   1. The page did NOT do a full reload/navigation (the core symptom).
+//   2. The typed message appears in the chat (it persists, isn't cleared).
+//   3. A request to /api/chat actually fired (the send pathway ran).
+// It also dumps every console message, page error, and relevant network request
+// so failing vs passing environments can be compared side by side.
+
+const BASE_URL = process.env.BASE_URL ?? 'http://localhost:3000'
+const DEMO_PASSWORD = process.env.DEMO_PASSWORD ?? ''
+// A REAL trip request (not a trivial "test message"): the production bug only
+// manifests on a full itinerary generation, which takes ~45s and is exactly what
+// the serverless function timeout was cutting short. A nonsense prompt would get
+// a quick chat-only reply that never exercises the failing path. Override with
+// CHAT_MESSAGE if needed.
+const MESSAGE = process.env.CHAT_MESSAGE ?? '5 days in Tokyo for two — food, temples, mid budget'
+
+// Load /app and get past the password gate (if the target is gated).
+async function loadApp(page: import('@playwright/test').Page) {
+  await page.goto(`${BASE_URL}/app`, { waitUntil: 'domcontentloaded' })
+  if (page.url().includes('/login')) {
+    if (!DEMO_PASSWORD) {
+      throw new Error(
+        `Target ${BASE_URL} is password-gated (redirected to /login) but no DEMO_PASSWORD env var was provided.`,
+      )
+    }
+    await page.fill('input[type="password"]', DEMO_PASSWORD)
+    await page.click('button[type="submit"]')
+    await page.waitForURL('**/app', { timeout: 15_000 })
+  }
+  await expect(page.locator('textarea').first()).toBeVisible({ timeout: 15_000 })
+}
+
+test('pressing Enter sends the message without reloading the page', async ({ page }) => {
+  // ── Collect evidence ────────────────────────────────────────────────────────
+  const consoleMessages: string[] = []
+  const consoleErrors: string[] = []
+  const pageErrors: string[] = []
+  const apiChatRequests: string[] = []
+  const navigations: string[] = []
+
+  page.on('console', (msg: ConsoleMessage) => {
+    const line = `[${msg.type()}] ${msg.text()}`
+    consoleMessages.push(line)
+    if (msg.type() === 'error') consoleErrors.push(line)
+  })
+  page.on('pageerror', (err: Error) => {
+    pageErrors.push(err.message)
+  })
+  page.on('request', (req: Request) => {
+    if (req.url().includes('/api/chat')) apiChatRequests.push(`${req.method()} ${req.url()}`)
+  })
+  // Any full document navigation of the main frame after initial load.
+  // We record them and decide below whether one was an unexpected reload.
+  page.on('framenavigated', (frame) => {
+    if (frame === page.mainFrame()) navigations.push(frame.url())
+  })
+
+  // A page-instance marker that only survives if there is NO full reload.
+  // addInitScript runs on every document load, so on a reload it would be reset.
+  await page.addInitScript(() => {
+    // @ts-expect-error - test-only global
+    if (!window.__pageInstanceId) {
+      // @ts-expect-error - test-only global
+      window.__pageInstanceId = Math.random().toString(36).slice(2) + ':' + performance.timeOrigin
+    }
+  })
+
+  // ── 1. Load the app ─────────────────────────────────────────────────────────
+  await page.goto(`${BASE_URL}/app`, { waitUntil: 'domcontentloaded' })
+
+  // ── 2. Handle the password gate if present ──────────────────────────────────
+  if (page.url().includes('/login')) {
+    if (!DEMO_PASSWORD) {
+      throw new Error(
+        `Target ${BASE_URL} is password-gated (redirected to /login) but no DEMO_PASSWORD env var was provided.`,
+      )
+    }
+    await page.fill('input[type="password"]', DEMO_PASSWORD)
+    await page.click('button[type="submit"]')
+    await page.waitForURL('**/app', { timeout: 15_000 })
+  }
+
+  // ── 3. Wait for the chat input to be interactive ────────────────────────────
+  const textarea = page.locator('textarea')
+  await expect(textarea.first()).toBeVisible({ timeout: 15_000 })
+
+  // Capture the instance id AFTER the app is interactive.
+  const instanceBefore = await page.evaluate(() => (window as unknown as { __pageInstanceId: string }).__pageInstanceId)
+  const navCountBefore = navigations.length
+
+  const tripsBefore = await page.evaluate(() => {
+    try {
+      const raw = localStorage.getItem('wandr-v1')
+      return raw ? Object.keys(JSON.parse(raw).state?.trips ?? {}).length : 0
+    } catch { return 0 }
+  })
+
+  // ── 4. Type a message and press Enter ───────────────────────────────────────
+  await textarea.first().click()
+  await textarea.first().fill(MESSAGE)
+  await page.keyboard.press('Enter')
+
+  // Brief settle so the app switches out of hero mode and fires the request.
+  await page.waitForTimeout(3_000)
+
+  // ── 5. Wait for the request to RESOLVE, observing PROGRESSIVE streaming ──────
+  // This reproduces the production bug. On a deployment where the function times
+  // out mid-stream, no trip is ever created and the UI shows the interrupted
+  // state — so we poll for the real outcome (a new trip, OR a visible timeout/
+  // interrupted error). Along the way we also confirm the agent's reply streams
+  // in PROGRESSIVELY (partial assistant text appears before the trip completes),
+  // rather than arriving in a single blob at the end.
+  const RESOLVE_TIMEOUT = 150_000 // full Sonnet generation ~80s; generous margin
+  const start = Date.now()
+  let newTripCreated = false
+  let errorShown = false
+  let sawProgressiveText = false
+  let maxPartialLen = 0
+  while (Date.now() - start < RESOLVE_TIMEOUT) {
+    newTripCreated = await page.evaluate((before) => {
+      try {
+        const raw = localStorage.getItem('wandr-v1')
+        if (!raw) return false
+        return Object.keys(JSON.parse(raw).state?.trips ?? {}).length > before
+      } catch { return false }
+    }, tripsBefore)
+    // Length of the latest assistant message still in the pre-trip '__new__'
+    // thread — grows as tokens stream in, proving progressive rendering.
+    const partialLen: number = await page.evaluate(() => {
+      try {
+        const raw = localStorage.getItem('wandr-v1')
+        if (!raw) return 0
+        const msgs = (JSON.parse(raw).state?.chatHistory ?? {})['__new__'] ?? []
+        const lastAssistant = [...msgs].reverse().find((m: { role: string }) => m.role === 'assistant')
+        return lastAssistant?.content?.length ?? 0
+      } catch { return 0 }
+    }).catch(() => 0)
+    if (partialLen > maxPartialLen) maxPartialLen = partialLen
+    // Progressive = we saw non-empty streamed text WHILE the trip was not yet created.
+    if (!newTripCreated && partialLen > 0) sawProgressiveText = true
+    errorShown = await page.evaluate(() =>
+      /took too long|cut off before it finished|generation was interrupted/i.test(document.body.innerText),
+    ).catch(() => false)
+    if (newTripCreated || errorShown) break
+    await page.waitForTimeout(1_500)
+  }
+  const resolveSeconds = Math.round((Date.now() - start) / 1000)
+
+  // ── 6. Gather results ───────────────────────────────────────────────────────
+  const instanceAfter = await page
+    .evaluate(() => (window as unknown as { __pageInstanceId?: string }).__pageInstanceId)
+    .catch(() => undefined)
+
+  // A reload would either wipe the marker (undefined) or replace it with a new id.
+  const reloaded = instanceAfter === undefined || instanceAfter !== instanceBefore
+  const extraNavigations = navigations.slice(navCountBefore)
+
+  // Did the message persist (visible on screen or at least retained in the store)?
+  const messageVisible = await page.getByText(MESSAGE, { exact: false }).first().isVisible().catch(() => false)
+  const messageInStore = await page.evaluate((msg) => {
+    try {
+      const raw = localStorage.getItem('wandr-v1')
+      if (!raw) return false
+      const state = JSON.parse(raw).state ?? {}
+      const all = Object.values(state.chatHistory ?? {}).flat() as Array<{ content?: string }>
+      return all.some((m) => (m.content ?? '').includes(msg))
+    } catch {
+      return false
+    }
+  }, MESSAGE)
+
+  // Did we end up stranded back on the EMPTY hero screen with no trip? That was
+  // the original silent-fallback symptom ("page reloaded and cleared the chat").
+  // Note: an interrupted generation should now show the explicit InterruptedState,
+  // NOT the empty hero — so this must be false whether we succeed or fail.
+  // Detect the hero by its unique "Where to next?" headline (the chat-panel input
+  // shares the hero's placeholder text, so a placeholder check would false-match).
+  const strandedOnEmptyHero = await page.evaluate(() => {
+    const onHero = Array.from(document.querySelectorAll('h1')).some((h) => /where to next/i.test(h.textContent ?? ''))
+    const raw = localStorage.getItem('wandr-v1')
+    const tripCount = raw ? Object.keys(JSON.parse(raw).state?.trips ?? {}).length : 0
+    return onHero && tripCount === 0
+  })
+
+  // ── 7. Report (side-by-side friendly) ───────────────────────────────────────
+  console.log('\n──────── CHAT INPUT TEST REPORT ────────')
+  console.log('BASE_URL              :', BASE_URL)
+  console.log('Reloaded/navigated?   :', reloaded ? 'YES ❌' : 'no ✅')
+  console.log('  instance before     :', instanceBefore)
+  console.log('  instance after      :', instanceAfter)
+  console.log('  extra navigations   :', extraNavigations.length ? extraNavigations : '(none)')
+  console.log('/api/chat fired?      :', apiChatRequests.length ? `YES ✅ (${apiChatRequests.length})` : 'NO ❌')
+  console.log('Message persisted?    :', messageVisible || messageInStore ? 'YES ✅' : 'NO ❌',
+    `(visible=${messageVisible}, store=${messageInStore})`)
+  console.log('Streamed progressively?:', sawProgressiveText ? `YES ✅ (max partial ${maxPartialLen} chars)` : 'NO ❌')
+  console.log('Itinerary created?    :', newTripCreated ? `YES ✅ (after ~${resolveSeconds}s)` : 'NO ❌')
+  console.log('Error/interrupt shown?:', errorShown ? `YES ⚠️ (after ~${resolveSeconds}s)` : 'no')
+  console.log('Stranded empty hero?  :', strandedOnEmptyHero ? 'YES ❌ (THE PRODUCTION BUG)' : 'no ✅')
+  console.log('Console errors        :', consoleErrors.length ? consoleErrors : '(none)')
+  console.log('Page errors           :', pageErrors.length ? pageErrors : '(none)')
+  console.log('Hydration warnings    :',
+    consoleMessages.filter((m) => /hydrat|did not match|mismatch/i.test(m)).length
+      ? consoleMessages.filter((m) => /hydrat|did not match|mismatch/i.test(m))
+      : '(none)')
+  console.log('Total console msgs    :', consoleMessages.length)
+  console.log('────────────────────────────────────────\n')
+
+  // ── 8. Assert the bug is gone ───────────────────────────────────────────────
+  // Core symptom checks:
+  expect(reloaded, 'page must NOT reload/navigate when pressing Enter').toBe(false)
+  expect(apiChatRequests.length, 'a request to /api/chat must fire').toBeGreaterThan(0)
+  expect(messageVisible || messageInStore, 'the typed message must persist (not be cleared)').toBe(true)
+  // Streaming must be progressive — partial text rendered before the trip lands.
+  expect(sawProgressiveText, 'agent reply must stream progressively (partial text before completion)').toBe(true)
+  // Must never silently fall back to the empty hero screen.
+  expect(strandedOnEmptyHero, 'must not fall back to the empty hero screen (the production bug)').toBe(false)
+  // And the full generation must complete into an itinerary.
+  expect(newTripCreated, 'generation must complete and create an itinerary within the timeout').toBe(true)
+})
+
+// ─── Interrupted stream → retry state (NOT silent empty hero) ──────────────────
+// Deterministically simulates the production failure: the API stream emits some
+// text then drops WITHOUT completing (the serverless-timeout signature). The app
+// must show the explicit "Generation was interrupted / Retry" state — never the
+// silent fall-back to the empty hero screen that made the original bug so baffling.
+test('an interrupted stream shows the retry state, not the empty hero', async ({ page }) => {
+  await loadApp(page)
+
+  // Intercept the chat call and return a TRUNCATED SSE stream: one delta, then
+  // the connection closes with no 'done'/'error' terminal event.
+  await page.route('**/api/chat', async (route) => {
+    const body =
+      'data: ' + JSON.stringify({ type: 'delta', text: 'Tokyo in June is fantastic — let me map out' }) + '\n\n'
+    await route.fulfill({
+      status: 200,
+      headers: { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache' },
+      body,
+    })
+  })
+
+  await page.locator('textarea').first().fill(MESSAGE)
+  await page.keyboard.press('Enter')
+
+  // The interrupted UI should appear (it does not require a real generation).
+  await expect(page.getByText(/generation was interrupted/i)).toBeVisible({ timeout: 20_000 })
+  await expect(page.getByRole('button', { name: /retry/i })).toBeVisible()
+
+  // And we must NOT be sitting on the empty hero screen (detect via the hero's
+  // unique "Where to next?" headline — the chat input shares its placeholder).
+  const strandedOnEmptyHero = await page.evaluate(() => {
+    const onHero = Array.from(document.querySelectorAll('h1')).some((h) => /where to next/i.test(h.textContent ?? ''))
+    const raw = localStorage.getItem('wandr-v1')
+    const tripCount = raw ? Object.keys(JSON.parse(raw).state?.trips ?? {}).length : 0
+    return onHero && tripCount === 0
+  })
+  expect(strandedOnEmptyHero, 'interrupted generation must NOT silently fall back to the empty hero').toBe(false)
+
+  // The user's message must still be preserved.
+  const messagePreserved = await page.evaluate((msg) => {
+    const raw = localStorage.getItem('wandr-v1')
+    if (!raw) return false
+    const all = Object.values(JSON.parse(raw).state?.chatHistory ?? {}).flat() as Array<{ content?: string }>
+    return all.some((m) => (m.content ?? '').includes(msg))
+  }, MESSAGE)
+  expect(messagePreserved, 'the typed message must be preserved after an interruption').toBe(true)
+
+  console.log('\n──────── INTERRUPTED-STREAM TEST ────────')
+  console.log('BASE_URL              :', BASE_URL)
+  console.log('Interrupted state UI  : shown ✅')
+  console.log('Stranded empty hero?  :', strandedOnEmptyHero ? 'YES ❌' : 'no ✅')
+  console.log('Message preserved?    :', messagePreserved ? 'YES ✅' : 'NO ❌')
+  console.log('─────────────────────────────────────────\n')
+})

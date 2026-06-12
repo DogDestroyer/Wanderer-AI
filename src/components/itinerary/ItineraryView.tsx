@@ -155,7 +155,8 @@ export function ItineraryView({ trip }: ItineraryViewProps) {
       `Please re-plan my trip using replace_day_activities with ${getPaceLabel(pace)} pace and ` +
       `${getBudgetLabel(budgetLevel)} budget style. ` +
       `Keep any locked activities exactly as they are and adjust the rest to match the new preferences.`
-    document.dispatchEvent(new CustomEvent('wandr:send-message', { detail: { message: msg } }))
+    // 'quick' tier — a localized preference re-plan (replace_day_activities).
+    document.dispatchEvent(new CustomEvent('wandr:send-message', { detail: { message: msg, intent: 'quick' } }))
     showToast({ message: 'Re-planning with new preferences…', type: 'info' })
   }
 
@@ -250,6 +251,7 @@ export function ItineraryView({ trip }: ItineraryViewProps) {
                   document.dispatchEvent(new CustomEvent('wandr:send-message', {
                     detail: {
                       message: `The budget tracker shows ${formatCurrency(spent, budget.currency)} against a ${formatCurrency(budget.cap, budget.currency)} cap, which is more than 5× over — this usually means activity costs have the wrong ISO currency code. Please check every activity's cost.currency field (e.g. use JPY for yen, not USD), then resend the corrected plan.`,
+                      intent: 'quick',
                     },
                   }))
                 }}

@@ -4,21 +4,61 @@ import { DEFAULT_AGENT_SETTINGS } from '@/lib/types'
 import { getPaceLabel, getBudgetLabel, getTripStyleLabel, getDiningLabel } from '@/lib/utils'
 
 // ─── Route runtime config (CRITICAL for Vercel) ───────────────────────────────
-// A full itinerary generation with Opus + adaptive thinking takes ~30–60s.
-// Without an extended maxDuration, Vercel kills the serverless function at the
-// plan default (10s Hobby / 15s Pro) MID-STREAM. The browser then receives a
-// truncated stream with no final 'done' event, no trip is created, and the UI
-// falls back to the empty hero screen — which looks exactly like the page
-// "reloading and clearing the chat". 60s is the universally-safe ceiling
-// (allowed on every plan, including Hobby). On Pro/Enterprise you can raise
-// this to 300 for more headroom.
+// A full itinerary generation takes ~80s. Without an extended maxDuration,
+// Vercel kills the serverless function at the platform default MID-STREAM. The
+// browser then receives a truncated stream with no final 'done' event, no trip
+// is created, and the UI falls back to the empty hero screen — which looks
+// exactly like the page "reloading and clearing the chat".
+//
+// With Vercel Fluid Compute (default on current projects, all plans including
+// Hobby) functions may run up to 300s, so we request the full 300s for wide
+// margin. NOTE: Fluid Compute must be ENABLED on the project for this to take
+// effect — see project Settings → Functions in the Vercel dashboard.
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
-export const maxDuration = 60
+export const maxDuration = 300
 
 const client = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY!,
 })
+
+// ─── Model tiering ────────────────────────────────────────────────────────────
+// Two tiers, chosen per request by the `intent` field (see POST handler):
+//   • FULL  → Sonnet 4.6: full trip generation (create_trip / replace_trip).
+//             Richer, more accurate itineraries. ~80s for a 5-day trip, which is
+//             fine now that maxDuration is 300s (Vercel Fluid Compute).
+//   • QUICK → Haiku 4.5: small partial regenerations and quick edits
+//             (single-day tweaks, assumption-chip corrections, preference re-plans).
+//             ~2x faster — speed matters more than richness for a localized change.
+// Both are env-overridable so a deployment can re-tier without a code change.
+const FULL_MODEL  = process.env.PLANNER_MODEL ?? 'claude-sonnet-4-6'
+const QUICK_MODEL = process.env.QUICK_MODEL  ?? 'claude-haiku-4-5'
+
+// Extract the first balanced JSON object from a string, ignoring any trailing
+// prose the model may append after it. Faster models (Haiku) sometimes add a
+// stray sentence after the JSON, which breaks a naive JSON.parse of the whole
+// remainder. This scans brace depth while respecting string literals/escapes so
+// we recover the valid object instead of failing the entire generation.
+function extractJsonObject(text: string): string | null {
+  const startIdx = text.indexOf('{')
+  if (startIdx === -1) return null
+  let depth = 0
+  let inString = false
+  let escaped = false
+  for (let i = startIdx; i < text.length; i++) {
+    const ch = text[i]
+    if (escaped) { escaped = false; continue }
+    if (ch === '\\') { escaped = true; continue }
+    if (ch === '"') { inString = !inString; continue }
+    if (inString) continue
+    if (ch === '{') depth++
+    else if (ch === '}') {
+      depth--
+      if (depth === 0) return text.slice(startIdx, i + 1)
+    }
+  }
+  return null // unbalanced — genuinely truncated
+}
 
 // ─── System prompt ─────────────────────────────────────────────────────────────
 
@@ -168,13 +208,15 @@ Always use **"create_trip"**. Never use replace_trip, replace_day_activities, or
 }
 
 ## Activity guidelines
-- Keep descriptions to 1–2 sentences max — concise but vivid
+- Plan 4–5 activities per day by default — a focused, high-quality day beats an
+  overwhelming one. Only exceed this if the user explicitly asks for a packed pace.
+- Keep each description to ONE short sentence — concise but vivid (no second sentence).
 - Typical timings: breakfast 07:30–09:00, lunch 12:30–14:00, dinner 19:00–21:00
 - Day 1: start with arrival transport + accommodation check-in
 - Last day: end with departure transport
 - Set weatherSensitive: true for open-air markets, beach days, walking tours, etc.
 - Use accurate latitude/longitude coordinates
-- For trips longer than 10 days, plan 3–4 activities per day (not 5–6) to stay within output limits
+- For trips longer than 8 days, plan 3–4 activities per day to stay within output limits
 
 ## Currency rules (CRITICAL — wrong codes cause budget chaos)
 - Every cost MUST include the correct ISO 4217 currency code for where that cost occurs.
@@ -316,9 +358,13 @@ export async function POST(request: Request): Promise<Response> {
     trip?: TripPlan | null
     agentSettings?: AgentSettings
     preferences?: TripPreferences | null
+    intent?: 'full' | 'quick'
   }
 
-  const { messages, trip, agentSettings = DEFAULT_AGENT_SETTINGS, preferences } = body
+  const { messages, trip, agentSettings = DEFAULT_AGENT_SETTINGS, preferences, intent = 'full' } = body
+
+  // Model tiering: 'quick' edits use the faster Haiku model, full generations use Sonnet.
+  const model = intent === 'quick' ? QUICK_MODEL : FULL_MODEL
 
   // Use trip's own preferences if available, otherwise fall back to passed preferences
   const activePreferences = trip?.preferences ?? preferences ?? null
@@ -340,16 +386,18 @@ export async function POST(request: Request): Promise<Response> {
 
       try {
         const stream = client.messages.stream({
-          model: 'claude-opus-4-8',
+          model,
           // Lowered from 32000: a single itinerary's text + JSON is well under this,
           // and a tighter ceiling trims worst-case output time.
           max_tokens: 24000,
-          thinking: { type: 'adaptive' },
-          // 'medium' effort keeps Opus's quality high for structured itinerary
-          // generation while cutting the deep-thinking time that pushed total
-          // latency to ~60s — which is the hard function-timeout limit on Vercel's
-          // Hobby plan. This keeps generations comfortably under the cap.
-          output_config: { effort: 'medium' },
+          // Thinking DISABLED deliberately. This is a structured-generation task,
+          // not open-ended reasoning, and we run under Vercel Hobby's hard 60s
+          // function limit. With adaptive thinking on, the model spent ~150s
+          // "thinking" before emitting anything — blowing far past the cap. With
+          // thinking off it generates the itinerary directly in a fast, PREDICTABLE
+          // time that comfortably fits the limit. The detailed system prompt already
+          // encodes the structure the model needs.
+          thinking: { type: 'disabled' },
           system: systemPrompt,
           messages,
         })
@@ -396,7 +444,10 @@ export async function POST(request: Request): Promise<Response> {
           return
         }
 
-        const jsonStr = fullText.slice(markerIdx + MARKER.length).trim()
+        const rawAfterMarker = fullText.slice(markerIdx + MARKER.length).trim()
+        // Prefer the balanced-object extraction (tolerates trailing prose); fall
+        // back to the raw remainder so a clean response still parses normally.
+        const jsonStr = extractJsonObject(rawAfterMarker) ?? rawAfterMarker
         let agentResponse: AgentTripResponse
 
         try {

@@ -127,7 +127,8 @@ function ChipEditor({
 
     // Trigger partial re-plan via the chat channel
     const correctionMsg = `The user corrected ${assumption.label} from "${assumption.value}" to "${newValue}". Please update the plan using replace_day_activities — keep locked activities and everything unaffected exactly as they are, and only adjust what's relevant to this change.`
-    document.dispatchEvent(new CustomEvent('wandr:send-message', { detail: { message: correctionMsg } }))
+    // 'quick' tier — a localized assumption correction, not a full re-plan.
+    document.dispatchEvent(new CustomEvent('wandr:send-message', { detail: { message: correctionMsg, intent: 'quick' } }))
     showToast({ message: `Updating plan for new ${assumption.label.toLowerCase()}…`, type: 'info' })
     onClose()
   }
