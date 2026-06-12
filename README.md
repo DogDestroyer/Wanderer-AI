@@ -107,6 +107,14 @@
 
 ---
 
+## Engineering notes
+
+A production-only bug made pressing Enter look like the page reloaded and wiped the chat — but only on Vercel, never locally. Rather than guess, we built a parameterised Playwright reproduction and ran it against dev, a local production build, and the live deployment, cross-checked with Vercel function logs and direct stream probes. The evidence surfaced two distinct causes in sequence: first the serverless function was being killed by its duration limit mid-generation; then, after raising `maxDuration` to 300s, a subtler one appeared — the itinerary JSON streams *after* the chat preamble with no bytes on the wire, so the connection sat silent for ~267s on a 16-day trip and intermediaries dropped it even though the function kept running. Two fixes closed it: a 10-second keepalive heartbeat cut the worst on-wire silence from ~267s to 10.3s, and skeleton-first chunked generation (a fast empty-days structure, then activities filled in 3-day batches) brought the slowest single request from 269s down to 82.3s against the 300s ceiling. A full 16-day trip now completes with 105 activities and zero interruptions. The lesson held throughout: reach real production early and let logged evidence, not local intuition, drive the diagnosis.
+
+A few architecture decisions underpin the app. The agent returns **structured JSON patches** (typed `action` + `trip`/`patch`), not prose the client has to parse, so edits apply deterministically. **Locked cards** are protected from AI changes by both a system-prompt rule and a client-side backstop, and any manual edit **auto-locks** the card so the model never overwrites a human change. All money is converted to the trip's display currency **at the aggregation boundary** via live ECB rates, so mixed-currency days total correctly and the original local price stays visible. And the agent runs on **model tiering** — Sonnet 4.6 for full trip generation, Haiku 4.5 for small partial edits — chosen per request by an `intent` flag.
+
+---
+
 ## Project Structure
 
 ```
