@@ -72,6 +72,45 @@ export interface TripDestination {
   lng: number
 }
 
+// ─── Live travel data (flights + hotels) ──────────────────────────────────────
+// Sourced behind a provider-agnostic wrapper (liteAPI for hotels, Travelpayouts
+// for flights). Both degrade gracefully to AI estimates (isEstimate / source).
+
+export interface HotelOffer {
+  source: 'liteapi' | 'estimate'
+  hotelId?: string
+  name: string
+  city: string
+  stars?: number          // 1–5
+  rating?: number         // review score, e.g. 8.7
+  pricePerNight: number   // in `currency`
+  currency: string
+  photo?: string
+  isEstimate: boolean     // false for real liteAPI prices
+  deepLink: string        // "Check price" — Agoda/Trip.com search
+}
+
+export interface FlightOffer {
+  source: 'travelpayouts' | 'estimate'
+  originCode: string
+  destinationCode: string
+  departDate: string      // YYYY-MM-DD
+  returnDate?: string
+  price: number           // in `currency`
+  currency: string
+  airline?: string
+  isIndicative: boolean   // true: cached aggregate (Travelpayouts), verify via deep link
+  isEstimate: boolean     // true if source === 'estimate'
+  deepLink: string        // Trip.com flight search
+}
+
+export interface TripLiveData {
+  fetchedAt: number       // epoch ms
+  key: string             // hash of the fetch params — refetch only when this changes
+  flight: FlightOffer | null
+  hotels: HotelOffer[]    // shortlist for the primary destination city
+}
+
 export interface TripBudget {
   cap: number         // user-set spending ceiling
   currency: string    // ISO currency code
@@ -108,6 +147,7 @@ export interface TripPreferences {
   exactBudget?: ExactBudget | null  // when set, overrides budgetLevel as a hard cap
   customInterests?: string[]      // user-added interest tags beyond INTEREST_OPTIONS
   showLocalPrices?: boolean       // show original local price as a muted secondary value (default true)
+  flyingFrom?: string             // origin city/airport for live flight pricing, e.g. "Singapore" or "SIN"
 }
 
 export const DEFAULT_PREFERENCES: TripPreferences = {
@@ -173,6 +213,7 @@ export interface TripPlan {
   days: Day[]
   suggestions: AgentSuggestion[]
   assumptions?: TripAssumption[]  // key parameters used when the plan was generated
+  liveData?: TripLiveData         // cached live flight + hotel prices
   coverImageUrl?: string
   createdAt: string
   updatedAt: string
