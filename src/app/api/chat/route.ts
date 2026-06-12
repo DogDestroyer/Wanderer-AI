@@ -3,6 +3,19 @@ import type { TripPlan, AgentTripResponse, AgentSettings, TripPreferences } from
 import { DEFAULT_AGENT_SETTINGS } from '@/lib/types'
 import { getPaceLabel, getBudgetLabel, getTripStyleLabel, getDiningLabel } from '@/lib/utils'
 
+// ─── Route runtime config (CRITICAL for Vercel) ───────────────────────────────
+// A full itinerary generation with Opus + adaptive thinking takes ~30–60s.
+// Without an extended maxDuration, Vercel kills the serverless function at the
+// plan default (10s Hobby / 15s Pro) MID-STREAM. The browser then receives a
+// truncated stream with no final 'done' event, no trip is created, and the UI
+// falls back to the empty hero screen — which looks exactly like the page
+// "reloading and clearing the chat". 60s is the universally-safe ceiling
+// (allowed on every plan, including Hobby). On Pro/Enterprise you can raise
+// this to 300 for more headroom.
+export const runtime = 'nodejs'
+export const dynamic = 'force-dynamic'
+export const maxDuration = 60
+
 const client = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY!,
 })
@@ -328,8 +341,15 @@ export async function POST(request: Request): Promise<Response> {
       try {
         const stream = client.messages.stream({
           model: 'claude-opus-4-8',
-          max_tokens: 32000,
+          // Lowered from 32000: a single itinerary's text + JSON is well under this,
+          // and a tighter ceiling trims worst-case output time.
+          max_tokens: 24000,
           thinking: { type: 'adaptive' },
+          // 'medium' effort keeps Opus's quality high for structured itinerary
+          // generation while cutting the deep-thinking time that pushed total
+          // latency to ~60s — which is the hard function-timeout limit on Vercel's
+          // Hobby plan. This keeps generations comfortably under the cap.
+          output_config: { effort: 'medium' },
           system: systemPrompt,
           messages,
         })

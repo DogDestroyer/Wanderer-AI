@@ -140,6 +140,10 @@ export function useChatSend() {
         | { type: 'json_error'; naturalMessage: string; parseError?: string }
 
       let jsonError: { naturalMessage: string } | null = null
+      // Did the server send a terminal event ('done' or 'error')? If the stream
+      // ends without one, the function was cut off mid-response (e.g. a Vercel
+      // serverless timeout) and we must NOT silently swallow it.
+      let receivedTerminal = false
 
       // eslint-disable-next-line no-constant-condition
       while (true) {
@@ -157,22 +161,42 @@ export function useChatSend() {
             streamedText += payload.text
             updateLastAssistantMessage(chatId, streamedText)
           } else if (payload.type === 'done') {
+            receivedTerminal = true
             applyTripResponse(payload.response, chatId, snapshotActiveTripId)
           } else if (payload.type === 'json_error') {
             jsonError = { naturalMessage: payload.naturalMessage }
           } else if (payload.type === 'error') {
+            receivedTerminal = true
             updateLastAssistantMessage(chatId, 'Sorry, something went wrong — please try again.', false)
           }
         }
       }
-      return jsonError
+      // Stream closed cleanly but we never got a 'done'/'error'/'json_error':
+      // the response was truncated. Signal a cut so the caller surfaces it.
+      const cutOff = !receivedTerminal && !jsonError
+      return { jsonError, cutOff }
+    }
+
+    // Shown when the AI response is truncated before completing (most often a
+    // serverless function timeout). A toast is used because it renders even from
+    // the pre-trip hero screen, where the chat panel isn't mounted.
+    function handleCutOff() {
+      updateLastAssistantMessage(
+        chatId,
+        'The response was cut off before it finished — this usually means the request took too long. Please try again.',
+        false,
+      )
+      showToast({ message: 'The plan took too long to generate — please try again.', type: 'warning' })
     }
 
     try {
       // ── First attempt ─────────────────────────────────────────────────────
-      const jsonError = await runStream(baseHistory)
+      const { jsonError, cutOff } = await runStream(baseHistory)
 
-      if (jsonError) {
+      if (cutOff) {
+        // A retry would almost certainly time out the same way — fail loudly instead.
+        handleCutOff()
+      } else if (jsonError) {
         // ── Auto-retry once with failure context ──────────────────────────
         const naturalMsg = jsonError.naturalMessage
         updateLastAssistantMessage(chatId, naturalMsg + '\n\n*(Applying your plan…)*', false)
@@ -188,15 +212,21 @@ export function useChatSend() {
           },
         ]
 
-        const retryError = await runStream(retryHistory)
+        const { jsonError: retryError, cutOff: retryCutOff } = await runStream(retryHistory)
 
-        if (retryError) {
+        if (retryCutOff) {
+          handleCutOff()
+        } else if (retryError) {
           updateLastAssistantMessage(chatId, retryError.naturalMessage, false)
           showToast({ message: 'Plan generated but could not be applied — please try again.', type: 'warning' })
         }
       }
-    } catch {
-      updateLastAssistantMessage(chatId, "Sorry, I couldn't connect to the AI. Please try again.", false)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Sorry, I couldn't connect to the AI. Please try again."
+      updateLastAssistantMessage(chatId, msg, false)
+      // Surface via toast too — visible even from the hero screen where the chat
+      // panel (and thus the message bubble) isn't rendered.
+      showToast({ message: msg, type: 'warning' })
     } finally {
       setIsGenerating(false)
     }
