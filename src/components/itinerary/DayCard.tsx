@@ -17,9 +17,10 @@ interface DayCardProps {
   isDraggingAny: boolean
   rates?: RatesMap
   showLocalPrices?: boolean
+  planning?: boolean
 }
 
-export function DayCard({ day, index, tripId, tripCurrency, isDraggingAny, rates = FALLBACK_RATES, showLocalPrices }: DayCardProps) {
+export function DayCard({ day, index, tripId, tripCurrency, isDraggingAny, rates = FALLBACK_RATES, showLocalPrices, planning }: DayCardProps) {
   const { activities, weather, dayNotes } = day
 
   const dayTotal = calculateDayBudgetConverted(activities, tripCurrency, rates)
@@ -96,11 +97,18 @@ export function DayCard({ day, index, tripId, tripCurrency, isDraggingAny, rates
               isOver && isDraggingAny ? 'bg-[#161616]' : ''
             )}
           >
-            <p className="text-[12px] text-[#333]">
-              {isOver && isDraggingAny
-                ? 'Drop here to add to this day'
-                : 'No activities planned for this day yet.'}
-            </p>
+            {planning ? (
+              <p className="text-[12px] text-[#555] flex items-center justify-center gap-2">
+                <span className="w-3 h-3 border border-[#333] border-t-[#777] rounded-full animate-spin" />
+                Planning this day…
+              </p>
+            ) : (
+              <p className="text-[12px] text-[#333]">
+                {isOver && isDraggingAny
+                  ? 'Drop here to add to this day'
+                  : 'No activities planned for this day yet.'}
+              </p>
+            )}
           </div>
         ) : (
           <SortableContext items={activityIds} strategy={verticalListSortingStrategy}>

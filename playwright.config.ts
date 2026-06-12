@@ -13,9 +13,9 @@ import { defineConfig } from '@playwright/test'
 //   DEMO_PASSWORD=... BASE_URL=https://... npx playwright test
 export default defineConfig({
   testDir: './tests',
-  // A full Sonnet generation takes ~80s; allow generous room (still well under
-  // the 300s server cap) plus setup/login overhead.
-  timeout: 200_000,
+  // Chunked generation (skeleton + sequential fill batches) for a multi-day trip
+  // can take a few minutes end-to-end; allow generous room plus setup/login.
+  timeout: 300_000,
   fullyParallel: false,
   reporter: [['list']],
   use: {

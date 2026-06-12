@@ -26,7 +26,7 @@ export function ChatPanel() {
   const chatHistory  = useStore((s) => s.chatHistory)
   const activeTrip   = activeTripId ? trips[activeTripId] : null
 
-  const { sendMessage, isGenerating } = useChatSend()
+  const { sendMessage, isGenerating, resumeFill } = useChatSend()
 
   const chatKey  = activeTripId ?? '__new__'
   const messages: ChatMessage[] = chatHistory[chatKey] ?? []
@@ -86,6 +86,15 @@ export function ChatPanel() {
     document.addEventListener('wandr:send-message', handler)
     return () => document.removeEventListener('wandr:send-message', handler)
   }, [])
+
+  // wandr:resume-fill — resume a chunked generation that was interrupted mid-fill
+  useEffect(() => {
+    function handler() {
+      if (activeTripId) resumeFill(activeTripId)
+    }
+    document.addEventListener('wandr:resume-fill', handler)
+    return () => document.removeEventListener('wandr:resume-fill', handler)
+  }, [activeTripId, resumeFill])
 
   // ── Prompt enhancer ──────────────────────────────────────────────────────────
   async function handleEnhance() {

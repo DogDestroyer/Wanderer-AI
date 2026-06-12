@@ -37,9 +37,11 @@ export function useChatSend() {
     response: AgentTripResponse,
     chatId: string,
     snapshotActiveTripId: string | null,
+    updateMessage = true,
   ) => {
-    // Update message BEFORE createTrip so the '__new__' key migration captures it
-    updateLastAssistantMessage(chatId, response.message, false)
+    // Update message BEFORE createTrip so the '__new__' key migration captures it.
+    // Fill batches pass updateMessage=false so they don't clobber the skeleton's preamble.
+    if (updateMessage) updateLastAssistantMessage(chatId, response.message, false)
 
     const { action, trip, patch } = response
 
@@ -78,154 +80,180 @@ export function useChatSend() {
     // 'chat-only' — nothing to update
   }, [createTrip, updateTrip, updateLastAssistantMessage, setUserDefaults])
 
+  // ── Low-level stream processor ──────────────────────────────────────────────
+  // POSTs one request and processes its heartbeat-aware SSE stream. Reused for
+  // single-shot edits, the skeleton request, and each fill batch.
+  const streamOnce = useCallback(async (
+    body: Record<string, unknown>,
+    handlers: { onDelta?: (full: string) => void; onDone?: (resp: AgentTripResponse) => void },
+  ): Promise<{ jsonError: { naturalMessage: string } | null; cutOff: boolean; serverError: string | null }> => {
+    const res = await fetch('/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+
+    if (!res.ok || !res.body) throw new Error(`Server error: ${res.status}`)
+
+    // Guard against the proxy redirecting to /login (HTML with a 200 status).
+    const contentType = res.headers.get('content-type') ?? ''
+    if (!contentType.includes('text/event-stream')) {
+      throw new Error(
+        res.status === 401 || res.status === 403
+          ? 'Session expired — please refresh the page and log in again.'
+          : 'Could not reach the AI server — please refresh and try again.'
+      )
+    }
+
+    const reader  = res.body.getReader()
+    const decoder = new TextDecoder()
+    let buffer       = ''
+    let streamedText = ''
+
+    type StreamPayload =
+      | { type: 'delta';      text: string }
+      | { type: 'ping';       elapsedMs: number }
+      | { type: 'done';       response: AgentTripResponse }
+      | { type: 'error';      message: string }
+      | { type: 'json_error'; naturalMessage: string; parseError?: string }
+
+    let jsonError: { naturalMessage: string } | null = null
+    let serverError: string | null = null
+    let receivedTerminal = false
+
+    // Inactivity watchdog: the server heartbeats every 10s, so a healthy
+    // generation never goes quiet. If NOTHING (not even a ping) arrives for 30s,
+    // the connection is genuinely dead — abort and surface the interrupted state.
+    const IDLE_MS = 30_000
+    async function readWithTimeout(): Promise<ReadableStreamReadResult<Uint8Array>> {
+      let timer: ReturnType<typeof setTimeout> | undefined
+      const timeout = new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error('The connection went quiet — the response was interrupted.')), IDLE_MS)
+      })
+      try {
+        return await Promise.race([reader.read(), timeout])
+      } finally {
+        clearTimeout(timer)
+      }
+    }
+
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+      let result: ReadableStreamReadResult<Uint8Array>
+      try {
+        result = await readWithTimeout()
+      } catch (idleErr) {
+        reader.cancel().catch(() => {})
+        throw idleErr
+      }
+      const { done, value } = result
+      if (done) break
+      buffer += decoder.decode(value, { stream: true })
+      const lines = buffer.split('\n')
+      buffer = lines.pop() ?? ''
+
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue
+        const payload = JSON.parse(line.slice(6)) as StreamPayload
+
+        if (payload.type === 'delta') {
+          streamedText += payload.text
+          handlers.onDelta?.(streamedText)
+        } else if (payload.type === 'ping') {
+          // Keepalive only — its arrival resets the idle watchdog above.
+        } else if (payload.type === 'done') {
+          receivedTerminal = true
+          handlers.onDone?.(payload.response)
+        } else if (payload.type === 'json_error') {
+          jsonError = { naturalMessage: payload.naturalMessage }
+        } else if (payload.type === 'error') {
+          receivedTerminal = true
+          serverError = payload.message
+        }
+      }
+    }
+    // Closed without a terminal event → truncated. Signal a cut.
+    const cutOff = !receivedTerminal && !jsonError && !serverError
+    return { jsonError, cutOff, serverError }
+  }, [])
+
+  // ── Fill empty days in 2–3 day batches (resumable) ──────────────────────────
+  // Repeatedly finds days with no activities and fills the next batch. Reading
+  // the fresh trip from the store each round makes this naturally resumable: it
+  // simply continues from wherever it was interrupted. Returns true when every
+  // day has activities.
+  const fillEmptyDays = useCallback(async (tripId: string, preamble: string): Promise<boolean> => {
+    const BATCH = 3
+    // Guard caps total rounds (≈ very large trips) to avoid any infinite loop.
+    for (let round = 0; round < 60; round++) {
+      const trip = useStore.getState().trips[tripId]
+      if (!trip) return false
+      const emptyIds = trip.days.filter((d) => !d.activities || d.activities.length === 0).map((d) => d.id)
+      if (emptyIds.length === 0) return true
+
+      const batch = emptyIds.slice(0, BATCH)
+      const filled = trip.days.length - emptyIds.length
+      updateLastAssistantMessage(tripId, `${preamble}\n\n_Adding activities… ${filled}/${trip.days.length} days_`, true)
+
+      // One automatic retry per batch (heartbeats make idle failures rare).
+      let ok = false
+      for (let attempt = 0; attempt < 2 && !ok; attempt++) {
+        const freshTrip = useStore.getState().trips[tripId]
+        try {
+          const r = await streamOnce(
+            {
+              messages: [{ role: 'user', content: `Generate the activities for these day IDs now: ${batch.join(', ')}.` }],
+              trip: freshTrip,
+              agentSettings,
+              preferences: activePreferences,
+              intent: 'full',
+              mode: 'fill',
+              fillDayIds: batch,
+            },
+            { onDone: (resp) => applyTripResponse(resp, tripId, tripId, false) },
+          )
+          if (!r.cutOff && !r.jsonError && !r.serverError) ok = true
+        } catch {
+          // network/idle error — retry once, else bail to resume affordance
+        }
+      }
+      if (!ok) return false
+    }
+    return false
+  }, [streamOnce, applyTripResponse, updateLastAssistantMessage, agentSettings, activePreferences])
+
   // ── Core send function ───────────────────────────────────────────────────────
-  // `intent` selects the model tier on the server: 'full' (default) uses Sonnet
-  // for full trip generation; 'quick' uses the faster Haiku for small partial
-  // edits (assumption-chip corrections, single-day tweaks, preference re-plans).
+  // `intent` selects the model tier on the server: 'full' (default) uses Sonnet,
+  // 'quick' uses the faster Haiku for small partial edits.
+  //
+  // For a BRAND-NEW trip we generate in two phases (Plan B): a fast SKELETON
+  // (structure + dated days, no activities) renders immediately, then activities
+  // are filled in 2–3 day batches. Each request is small, so monster trips never
+  // approach the 300s function cap and the plan visibly fills in.
   const sendMessage = useCallback(async (text: string, intent: 'full' | 'quick' = 'full') => {
     if (!text.trim() || isGenerating) return
 
-    const chatId              = activeTripId ?? '__new__'
+    const chatId               = activeTripId ?? '__new__'
     const snapshotActiveTripId = activeTripId
 
-    // Add user message
     const userMessage: ChatMessage = {
-      id: crypto.randomUUID(),
-      role: 'user',
-      content: text,
-      timestamp: new Date().toISOString(),
+      id: crypto.randomUUID(), role: 'user', content: text, timestamp: new Date().toISOString(),
     }
     addChatMessage(chatId, userMessage)
     setIsGenerating(true)
 
-    // Add empty assistant placeholder
     const assistantMessage: ChatMessage = {
-      id: crypto.randomUUID(),
-      role: 'assistant',
-      content: '',
-      timestamp: new Date().toISOString(),
-      isStreaming: true,
+      id: crypto.randomUUID(), role: 'assistant', content: '', timestamp: new Date().toISOString(), isStreaming: true,
     }
     addChatMessage(chatId, assistantMessage)
 
     const baseHistory = [...messages, userMessage].map((m) => ({
-      role: m.role as 'user' | 'assistant',
-      content: m.content,
+      role: m.role as 'user' | 'assistant', content: m.content,
     }))
 
-    // ── Inner stream processor ─────────────────────────────────────────────────
-    async function runStream(
-      messagesToSend: Array<{ role: 'user' | 'assistant'; content: string }>
-    ) {
-      const res = await fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          messages: messagesToSend,
-          trip: activeTrip ?? null,
-          agentSettings,
-          preferences: activePreferences,
-          intent,
-        }),
-      })
-
-      if (!res.ok || !res.body) throw new Error(`Server error: ${res.status}`)
-
-      // Guard against the proxy redirecting to the login page — in that case the
-      // fetch follows the redirect, gets back HTML with a 200 status, and res.ok
-      // is true even though we never reached the API route. Detect by Content-Type.
-      const contentType = res.headers.get('content-type') ?? ''
-      if (!contentType.includes('text/event-stream')) {
-        throw new Error(
-          res.status === 401 || res.status === 403
-            ? 'Session expired — please refresh the page and log in again.'
-            : 'Could not reach the AI server — please refresh and try again.'
-        )
-      }
-
-      const reader  = res.body.getReader()
-      const decoder = new TextDecoder()
-      let buffer       = ''
-      let streamedText = ''
-
-      type StreamPayload =
-        | { type: 'delta';      text: string }
-        | { type: 'ping';       elapsedMs: number }
-        | { type: 'done';       response: AgentTripResponse }
-        | { type: 'error';      message: string }
-        | { type: 'json_error'; naturalMessage: string; parseError?: string }
-
-      let jsonError: { naturalMessage: string } | null = null
-      // Did the server send a terminal event ('done' or 'error')? If the stream
-      // ends without one, the function was cut off mid-response and we must NOT
-      // silently swallow it.
-      let receivedTerminal = false
-
-      // Inactivity watchdog: the server heartbeats every 10s, so a healthy
-      // generation never goes quiet. If NOTHING (not even a ping) arrives for
-      // 30s, the connection is genuinely dead — abort and surface the interrupted
-      // state instead of hanging forever.
-      const IDLE_MS = 30_000
-      async function readWithTimeout(): Promise<ReadableStreamReadResult<Uint8Array>> {
-        let timer: ReturnType<typeof setTimeout> | undefined
-        const timeout = new Promise<never>((_, reject) => {
-          timer = setTimeout(() => reject(new Error('The connection went quiet — the response was interrupted.')), IDLE_MS)
-        })
-        try {
-          return await Promise.race([reader.read(), timeout])
-        } finally {
-          clearTimeout(timer)
-        }
-      }
-
-      // eslint-disable-next-line no-constant-condition
-      while (true) {
-        let result: ReadableStreamReadResult<Uint8Array>
-        try {
-          result = await readWithTimeout()
-        } catch (idleErr) {
-          // Idle timeout — treat as a cut stream (handled by the caller as interrupted).
-          reader.cancel().catch(() => {})
-          throw idleErr
-        }
-        const { done, value } = result
-        if (done) break
-        buffer += decoder.decode(value, { stream: true })
-        const lines = buffer.split('\n')
-        buffer = lines.pop() ?? ''
-
-        for (const line of lines) {
-          if (!line.startsWith('data: ')) continue
-          const payload = JSON.parse(line.slice(6)) as StreamPayload
-
-          if (payload.type === 'delta') {
-            streamedText += payload.text
-            updateLastAssistantMessage(chatId, streamedText)
-          } else if (payload.type === 'ping') {
-            // Keepalive only — its arrival resets the idle watchdog above.
-          } else if (payload.type === 'done') {
-            receivedTerminal = true
-            applyTripResponse(payload.response, chatId, snapshotActiveTripId)
-          } else if (payload.type === 'json_error') {
-            jsonError = { naturalMessage: payload.naturalMessage }
-          } else if (payload.type === 'error') {
-            receivedTerminal = true
-            updateLastAssistantMessage(chatId, 'Sorry, something went wrong — please try again.', false)
-          }
-        }
-      }
-      // Stream closed cleanly but we never got a 'done'/'error'/'json_error':
-      // the response was truncated. Signal a cut so the caller surfaces it.
-      const cutOff = !receivedTerminal && !jsonError
-      return { jsonError, cutOff }
-    }
-
-    // Shown when the AI response is truncated before completing (most often a
-    // serverless function timeout). A toast is used because it renders even from
-    // the pre-trip hero screen, where the chat panel isn't mounted.
-    function handleCutOff() {
+    function handleCutOff(targetChatId: string) {
       updateLastAssistantMessage(
-        chatId,
+        targetChatId,
         'The response was cut off before it finished — this usually means the request took too long. Please try again.',
         false,
       )
@@ -233,42 +261,80 @@ export function useChatSend() {
     }
 
     try {
-      // ── First attempt ─────────────────────────────────────────────────────
-      const { jsonError, cutOff } = await runStream(baseHistory)
+      const creatingNewTrip = !snapshotActiveTripId && intent === 'full'
 
-      if (cutOff) {
-        // A retry would almost certainly time out the same way — fail loudly instead.
-        handleCutOff()
+      if (creatingNewTrip) {
+        // ── Phase 1: skeleton (fast structure, empty days) ──────────────────
+        const skel = await streamOnce(
+          { messages: baseHistory, trip: null, agentSettings, preferences: activePreferences, intent: 'full', mode: 'skeleton' },
+          { onDelta: (t) => updateLastAssistantMessage(chatId, t), onDone: (resp) => applyTripResponse(resp, chatId, null) },
+        )
+        if (skel.serverError) {
+          updateLastAssistantMessage(chatId, 'Sorry, something went wrong — please try again.', false)
+          showToast({ message: 'Something went wrong — please try again.', type: 'warning' }); return
+        }
+        if (skel.cutOff) { handleCutOff(chatId); return }
+        if (skel.jsonError) {
+          updateLastAssistantMessage(chatId, skel.jsonError.naturalMessage, false)
+          showToast({ message: 'Could not start the plan — please try again.', type: 'warning' }); return
+        }
+
+        const newTripId = useStore.getState().activeTripId
+        const newTrip   = newTripId ? useStore.getState().trips[newTripId] : null
+        // Chat-only reply (vague request) or no days → nothing to fill.
+        if (!newTripId || !newTrip || newTrip.days.length === 0) return
+
+        const msgs = useStore.getState().chatHistory[newTripId] ?? []
+        const preamble = [...msgs].reverse().find((m) => m.role === 'assistant')?.content
+          || 'Here\'s your trip — filling in each day…'
+
+        // ── Phase 2: fill days in batches ───────────────────────────────────
+        const ok = await fillEmptyDays(newTripId, preamble)
+        if (ok) {
+          updateLastAssistantMessage(newTripId, preamble, false)
+        } else {
+          updateLastAssistantMessage(newTripId, `${preamble}\n\n_Some days still need activities — tap “Resume” on the itinerary to finish._`, false)
+          showToast({ message: 'Some days didn\'t finish — tap Resume to complete them.', type: 'warning' })
+        }
+        return
+      }
+
+      // ── Single-shot path (edits / quick tier) ─────────────────────────────
+      const editBody = { messages: baseHistory, trip: activeTrip ?? null, agentSettings, preferences: activePreferences, intent }
+      const { jsonError, cutOff, serverError } = await streamOnce(editBody, {
+        onDelta: (t) => updateLastAssistantMessage(chatId, t),
+        onDone: (resp) => applyTripResponse(resp, chatId, snapshotActiveTripId),
+      })
+
+      if (serverError) {
+        updateLastAssistantMessage(chatId, 'Sorry, something went wrong — please try again.', false)
+        showToast({ message: 'Something went wrong — please try again.', type: 'warning' })
+      } else if (cutOff) {
+        handleCutOff(chatId)
       } else if (jsonError) {
-        // ── Auto-retry once with failure context ──────────────────────────
         const naturalMsg = jsonError.naturalMessage
         updateLastAssistantMessage(chatId, naturalMsg + '\n\n*(Applying your plan…)*', false)
         showToast({ message: 'Applying your plan…', type: 'info' })
 
-        const retryHistory: Array<{ role: 'user' | 'assistant'; content: string }> = [
+        const retryHistory = [
           ...baseHistory,
-          { role: 'assistant', content: naturalMsg },
-          {
-            role: 'user',
-            content:
-              'Your previous response was cut off before the JSON block. Please resend the complete response — include the ---WANDR-JSON--- marker on its own line and the full JSON object with all days and activities. Do not truncate.',
-          },
+          { role: 'assistant' as const, content: naturalMsg },
+          { role: 'user' as const, content: 'Your previous response was cut off before the JSON block. Please resend the complete response — include the ---WANDR-JSON--- marker on its own line and the full JSON object with all days and activities. Do not truncate.' },
         ]
-
-        const { jsonError: retryError, cutOff: retryCutOff } = await runStream(retryHistory)
-
-        if (retryCutOff) {
-          handleCutOff()
-        } else if (retryError) {
-          updateLastAssistantMessage(chatId, retryError.naturalMessage, false)
+        const retry = await streamOnce(
+          { ...editBody, messages: retryHistory },
+          { onDone: (resp) => applyTripResponse(resp, chatId, snapshotActiveTripId) },
+        )
+        if (retry.cutOff) {
+          handleCutOff(chatId)
+        } else if (retry.jsonError) {
+          updateLastAssistantMessage(chatId, retry.jsonError.naturalMessage, false)
           showToast({ message: 'Plan generated but could not be applied — please try again.', type: 'warning' })
         }
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Sorry, I couldn't connect to the AI. Please try again."
       updateLastAssistantMessage(chatId, msg, false)
-      // Surface via toast too — visible even from the hero screen where the chat
-      // panel (and thus the message bubble) isn't rendered.
       showToast({ message: msg, type: 'warning' })
     } finally {
       setIsGenerating(false)
@@ -276,8 +342,32 @@ export function useChatSend() {
   }, [
     isGenerating, activeTripId, activeTrip, messages, agentSettings,
     activePreferences, applyTripResponse, addChatMessage,
-    updateLastAssistantMessage, setIsGenerating,
+    updateLastAssistantMessage, setIsGenerating, streamOnce, fillEmptyDays,
   ])
 
-  return { sendMessage, isGenerating, messages, chatKey }
+  // ── Resume an interrupted chunked generation ────────────────────────────────
+  // Fills any days that are still empty (after a batch failed). Wired to the
+  // "Resume" affordance on the itinerary.
+  const resumeFill = useCallback(async (tripId: string) => {
+    if (useStore.getState().isGenerating) return
+    const trip = useStore.getState().trips[tripId]
+    if (!trip || !trip.days.some((d) => !d.activities || d.activities.length === 0)) return
+    setIsGenerating(true)
+    try {
+      const msgs = useStore.getState().chatHistory[tripId] ?? []
+      const raw = [...msgs].reverse().find((m) => m.role === 'assistant')?.content || 'Finishing your itinerary…'
+      const preamble = raw.split('\n\n_')[0] // strip any prior progress/resume note
+      const ok = await fillEmptyDays(tripId, preamble)
+      updateLastAssistantMessage(
+        tripId,
+        ok ? preamble : `${preamble}\n\n_Some days still need activities — tap “Resume” to finish._`,
+        false,
+      )
+      if (!ok) showToast({ message: 'Some days still didn\'t finish — tap Resume again.', type: 'warning' })
+    } finally {
+      setIsGenerating(false)
+    }
+  }, [fillEmptyDays, setIsGenerating, updateLastAssistantMessage])
+
+  return { sendMessage, isGenerating, messages, chatKey, resumeFill }
 }

@@ -171,6 +171,11 @@ export function ItineraryView({ trip }: ItineraryViewProps) {
   // Show original local prices as a muted secondary value on cards (default on).
   const showLocalPrices = preferences?.showLocalPrices !== false
 
+  // Chunked generation: days with no activities yet. While generating they fill
+  // in progressively; if generation was interrupted, offer a Resume.
+  const emptyDayCount = trip.days.filter((d) => !d.activities || d.activities.length === 0).length
+  const showResume = emptyDayCount > 0 && !isGenerating
+
   // Detect probable currency error: converted total > 5× the stated cap
   const hasCurrencyError = capSet && spent > 5 * budget.cap
 
@@ -282,6 +287,21 @@ export function ItineraryView({ trip }: ItineraryViewProps) {
           </div>
         )}
 
+        {/* Resume banner — a chunked generation was interrupted with empty days */}
+        {showResume && (
+          <div className="mt-3 flex items-center justify-between gap-2 px-3 py-2 bg-[#0d1320] border border-[#24405f] rounded-lg">
+            <p className="text-[11px] text-[#7fb0e0] leading-snug">
+              {emptyDayCount} {emptyDayCount === 1 ? 'day still needs' : 'days still need'} activities — generation was interrupted.
+            </p>
+            <button
+              onClick={() => document.dispatchEvent(new CustomEvent('wandr:resume-fill'))}
+              className="shrink-0 text-[11px] font-semibold text-black bg-white px-2.5 py-1 rounded-md hover:bg-[#e8e8e8] transition-colors"
+            >
+              Resume
+            </button>
+          </div>
+        )}
+
         {/* Interest tags */}
         {preferences?.interests && preferences.interests.length > 0 && (
           <div className="flex flex-wrap gap-1 mt-3">
@@ -387,6 +407,7 @@ export function ItineraryView({ trip }: ItineraryViewProps) {
                       isDraggingAny={activeDragId !== null}
                       rates={rates}
                       showLocalPrices={showLocalPrices}
+                      planning={isGenerating}
                     />
                   </motion.div>
                 ))}

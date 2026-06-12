@@ -136,39 +136,44 @@ test('pressing Enter sends the message without reloading the page', async ({ pag
   // interrupted error). Along the way we also confirm the agent's reply streams
   // in PROGRESSIVELY (partial assistant text appears before the trip completes),
   // rather than arriving in a single blob at the end.
-  const RESOLVE_TIMEOUT = 150_000 // full Sonnet generation ~80s; generous margin
+  // Chunked generation: the skeleton creates the trip fast (empty days), then
+  // activities fill in 2–3 day batches. We wait for FULL completion (every day
+  // has activities), which is the real "generation done" for the chunked flow.
+  const RESOLVE_TIMEOUT = 240_000
   const start = Date.now()
-  let newTripCreated = false
+  let tripCreated = false
+  let tripFullyBuilt = false
+  let dayProgress = '(none)'
   let errorShown = false
   let sawProgressiveText = false
   let maxPartialLen = 0
   while (Date.now() - start < RESOLVE_TIMEOUT) {
-    newTripCreated = await page.evaluate((before) => {
+    const snap = await page.evaluate((before) => {
       try {
-        const raw = localStorage.getItem('wandr-v1')
-        if (!raw) return false
-        return Object.keys(JSON.parse(raw).state?.trips ?? {}).length > before
-      } catch { return false }
+        const state = JSON.parse(localStorage.getItem('wandr-v1') || '{}').state ?? {}
+        const created = Object.keys(state.trips ?? {}).length > before
+        const activeId = state.activeTripId
+        const trip = activeId ? state.trips?.[activeId] : null
+        const totalDays = trip?.days?.length ?? 0
+        const emptyDays = trip ? trip.days.filter((d: { activities?: unknown[] }) => !d.activities || d.activities.length === 0).length : 0
+        const newMsgs = (state.chatHistory ?? {})['__new__'] ?? []
+        const tripMsgs = activeId ? (state.chatHistory?.[activeId] ?? []) : []
+        const msgs = newMsgs.length ? newMsgs : tripMsgs
+        const lastA = [...msgs].reverse().find((m: { role: string }) => m.role === 'assistant')
+        return { created, totalDays, emptyDays, partialLen: lastA?.content?.length ?? 0 }
+      } catch { return { created: false, totalDays: 0, emptyDays: 0, partialLen: 0 } }
     }, tripsBefore)
-    // Length of the latest assistant message still in the pre-trip '__new__'
-    // thread — grows as tokens stream in, proving progressive rendering.
-    const partialLen: number = await page.evaluate(() => {
-      try {
-        const raw = localStorage.getItem('wandr-v1')
-        if (!raw) return 0
-        const msgs = (JSON.parse(raw).state?.chatHistory ?? {})['__new__'] ?? []
-        const lastAssistant = [...msgs].reverse().find((m: { role: string }) => m.role === 'assistant')
-        return lastAssistant?.content?.length ?? 0
-      } catch { return 0 }
-    }).catch(() => 0)
-    if (partialLen > maxPartialLen) maxPartialLen = partialLen
-    // Progressive = we saw non-empty streamed text WHILE the trip was not yet created.
-    if (!newTripCreated && partialLen > 0) sawProgressiveText = true
+    tripCreated = snap.created
+    tripFullyBuilt = snap.created && snap.totalDays > 0 && snap.emptyDays === 0
+    dayProgress = `${snap.totalDays} days, ${snap.emptyDays} empty`
+    if (snap.partialLen > maxPartialLen) maxPartialLen = snap.partialLen
+    // Progressive = streamed text appeared before the trip was fully built.
+    if (!tripFullyBuilt && snap.partialLen > 0) sawProgressiveText = true
     errorShown = await page.evaluate(() =>
       /took too long|cut off before it finished|generation was interrupted/i.test(document.body.innerText),
     ).catch(() => false)
-    if (newTripCreated || errorShown) break
-    await page.waitForTimeout(1_500)
+    if (tripFullyBuilt || errorShown) break
+    await page.waitForTimeout(2_000)
   }
   const resolveSeconds = Math.round((Date.now() - start) / 1000)
 
@@ -219,7 +224,8 @@ test('pressing Enter sends the message without reloading the page', async ({ pag
   console.log('Message persisted?    :', messageVisible || messageInStore ? 'YES ✅' : 'NO ❌',
     `(visible=${messageVisible}, store=${messageInStore})`)
   console.log('Streamed progressively?:', sawProgressiveText ? `YES ✅ (max partial ${maxPartialLen} chars)` : 'NO ❌')
-  console.log('Itinerary created?    :', newTripCreated ? `YES ✅ (after ~${resolveSeconds}s)` : 'NO ❌')
+  console.log('Trip created (skeleton)?:', tripCreated ? 'YES ✅' : 'NO ❌')
+  console.log('Itinerary fully built? :', tripFullyBuilt ? `YES ✅ (after ~${resolveSeconds}s)` : `NO ❌ (${dayProgress})`)
   console.log('Error/interrupt shown?:', errorShown ? `YES ⚠️ (after ~${resolveSeconds}s)` : 'no')
   console.log('Stranded empty hero?  :', strandedOnEmptyHero ? 'YES ❌ (THE PRODUCTION BUG)' : 'no ✅')
   console.log('Console errors        :', consoleErrors.length ? consoleErrors : '(none)')
@@ -240,8 +246,8 @@ test('pressing Enter sends the message without reloading the page', async ({ pag
   expect(sawProgressiveText, 'agent reply must stream progressively (partial text before completion)').toBe(true)
   // Must never silently fall back to the empty hero screen.
   expect(strandedOnEmptyHero, 'must not fall back to the empty hero screen (the production bug)').toBe(false)
-  // And the full generation must complete into an itinerary.
-  expect(newTripCreated, 'generation must complete and create an itinerary within the timeout').toBe(true)
+  // The chunked generation must finish: every day filled with activities.
+  expect(tripFullyBuilt, `generation must complete with all days filled (got: ${dayProgress})`).toBe(true)
 })
 
 // ─── Interrupted stream → retry state (NOT silent empty hero) ──────────────────

@@ -365,6 +365,35 @@ function buildSettingsPrompt(s: AgentSettings): string {
     : ''
 }
 
+// ─── Chunked-generation mode prompts ──────────────────────────────────────────
+
+function buildModePrompt(mode: 'skeleton' | 'fill' | undefined, fillDayIds?: string[]): string {
+  if (mode === 'skeleton') {
+    return `
+
+## SKELETON MODE (CRITICAL — structure only, NO activities)
+You are generating ONLY the trip skeleton. Activities come later in a separate step.
+- Use action "create_trip" with the full TripPlan, BUT every day's "activities" array MUST be EMPTY: [].
+- Provide: name, destination, startDate, endDate, budget (with a sensible currency + cap), preferences, and one Day per day of the trip.
+- Each Day MUST have a unique "id", the correct "date", and a short "dayNotes" naming that day's area/theme (e.g. "Asakusa & old Tokyo", "Day trip to Nara"). NO activities.
+- Still include the "assumptions" array.
+- Keep your conversational message to ONE short sentence (e.g. "Here's your 7-day Japan trip — filling in each day now…").
+- Do NOT output any activities under any circumstances. An empty activities array is REQUIRED for every day.`
+  }
+  if (mode === 'fill') {
+    const ids = (fillDayIds ?? []).join(', ')
+    return `
+
+## FILL MODE (CRITICAL — activities for specific days only)
+The trip skeleton already exists (shown below). Generate activities for ONLY these day IDs: ${ids}.
+- Use action "replace_day_activities". The patch's "days" array MUST contain ONLY those day objects (same ids), each now with a full "activities" array.
+- Use each day's existing date and dayNotes theme to shape its activities. Keep within the trip's budget and honour all activity/currency/locked rules above.
+- Do NOT touch any other day. Do NOT change trip metadata.
+- Keep your conversational message to ONE short sentence or empty.`
+  }
+  return ''
+}
+
 export async function POST(request: Request): Promise<Response> {
   const body = (await request.json()) as {
     messages: Array<{ role: 'user' | 'assistant'; content: string }>
@@ -372,9 +401,13 @@ export async function POST(request: Request): Promise<Response> {
     agentSettings?: AgentSettings
     preferences?: TripPreferences | null
     intent?: 'full' | 'quick'
+    // Chunked generation: 'skeleton' returns the trip structure with empty days;
+    // 'fill' populates activities for the given day IDs. Absent = single-shot.
+    mode?: 'skeleton' | 'fill'
+    fillDayIds?: string[]
   }
 
-  const { messages, trip, agentSettings = DEFAULT_AGENT_SETTINGS, preferences, intent = 'full' } = body
+  const { messages, trip, agentSettings = DEFAULT_AGENT_SETTINGS, preferences, intent = 'full', mode, fillDayIds } = body
 
   // Model tiering: 'quick' edits use the faster Haiku model, full generations use Sonnet.
   const model = intent === 'quick' ? QUICK_MODEL : FULL_MODEL
@@ -384,10 +417,11 @@ export async function POST(request: Request): Promise<Response> {
 
   const settingsPrompt     = buildSettingsPrompt(agentSettings)
   const preferencesPrompt  = buildPreferencesPrompt(activePreferences)
+  const modePrompt         = buildModePrompt(mode, fillDayIds)
   const today = new Date().toISOString().split('T')[0]
   const systemPrompt = trip
-    ? `${BASE_SYSTEM_PROMPT}${settingsPrompt}${preferencesPrompt}\n\n## Current active trip\n\nThe user currently has this trip open. Use its day IDs when patching days.\n\n${JSON.stringify(trip, null, 2)}`
-    : `${BASE_SYSTEM_PROMPT}${settingsPrompt}${preferencesPrompt}\n\nNo active trip. Today's date: ${today}. Always use action "create_trip".`
+    ? `${BASE_SYSTEM_PROMPT}${settingsPrompt}${preferencesPrompt}${modePrompt}\n\n## Current active trip\n\nThe user currently has this trip open. Use its day IDs when patching days.\n\n${JSON.stringify(trip, null, 2)}`
+    : `${BASE_SYSTEM_PROMPT}${settingsPrompt}${preferencesPrompt}${modePrompt}\n\nNo active trip. Today's date: ${today}. Always use action "create_trip".`
 
   const encoder = new TextEncoder()
 
