@@ -22,5 +22,9 @@ export default defineConfig({
     headless: true,
     // Surface real navigations as such (no SPA assumptions).
     actionTimeout: 15_000,
+    // NOTE: Vercel Deployment Protection bypass is handled per-test via a cookie
+    // (see grantBypass() in the spec), NOT a global header — a global header
+    // would leak onto cross-origin calls (e.g. the open-meteo weather API) and
+    // trip their CORS preflight, producing misleading console errors.
   },
 })

@@ -24,9 +24,23 @@ const DEMO_PASSWORD = process.env.DEMO_PASSWORD ?? ''
 // a quick chat-only reply that never exercises the failing path. Override with
 // CHAT_MESSAGE if needed.
 const MESSAGE = process.env.CHAT_MESSAGE ?? '5 days in Tokyo for two — food, temples, mid budget'
+const VERCEL_BYPASS = process.env.VERCEL_BYPASS ?? ''
+
+// Plant Vercel's Deployment-Protection bypass COOKIE for the target origin only.
+// We use the cookie (not a global request header) so the bypass never leaks onto
+// cross-origin calls — e.g. the open-meteo weather API, whose CORS preflight
+// rejects unknown headers and would otherwise spam the console with errors.
+async function grantBypass(page: import('@playwright/test').Page) {
+  if (!VERCEL_BYPASS) return
+  const u = new URL(BASE_URL)
+  u.searchParams.set('x-vercel-protection-bypass', VERCEL_BYPASS)
+  u.searchParams.set('x-vercel-set-bypass-cookie', 'true')
+  await page.goto(u.toString(), { waitUntil: 'domcontentloaded' }).catch(() => {})
+}
 
 // Load /app and get past the password gate (if the target is gated).
 async function loadApp(page: import('@playwright/test').Page) {
+  await grantBypass(page)
   await page.goto(`${BASE_URL}/app`, { waitUntil: 'domcontentloaded' })
   if (page.url().includes('/login')) {
     if (!DEMO_PASSWORD) {
@@ -77,6 +91,7 @@ test('pressing Enter sends the message without reloading the page', async ({ pag
   })
 
   // ── 1. Load the app ─────────────────────────────────────────────────────────
+  await grantBypass(page)
   await page.goto(`${BASE_URL}/app`, { waitUntil: 'domcontentloaded' })
 
   // ── 2. Handle the password gate if present ──────────────────────────────────
