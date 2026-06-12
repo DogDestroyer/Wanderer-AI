@@ -3,6 +3,7 @@
 import { useCallback } from 'react'
 import { useStore } from '@/lib/store'
 import type { ChatMessage, AgentTripResponse } from '@/lib/types'
+import { preserveLockedActivities } from '@/lib/recalculate'
 import { showToast } from '@/components/ui/Toast'
 
 // ─── useChatSend ──────────────────────────────────────────────────────────────
@@ -52,9 +53,14 @@ export function useChatSend() {
       setUserDefaults(trip.preferences)
     } else if (action === 'replace_trip' && trip && snapshotActiveTripId) {
       const { id: _id, createdAt: _ca, ...rest } = trip
-      const patchWithAssumptions = response.assumptions?.length
-        ? { ...rest, assumptions: response.assumptions }
+      // Backstop: never let the agent alter or drop locked activities.
+      const oldDays = useStore.getState().trips[snapshotActiveTripId]?.days ?? []
+      const safeRest = rest.days
+        ? { ...rest, days: preserveLockedActivities(oldDays, rest.days) }
         : rest
+      const patchWithAssumptions = response.assumptions?.length
+        ? { ...safeRest, assumptions: response.assumptions }
+        : safeRest
       updateTrip(snapshotActiveTripId, patchWithAssumptions as Partial<import('@/lib/types').TripPlan>)
       setUserDefaults(trip.preferences)
     } else if (
@@ -62,6 +68,11 @@ export function useChatSend() {
       patch && snapshotActiveTripId
     ) {
       const { tripId: _tid, dayIds: _dids, ...tripFields } = patch
+      // Backstop: preserve locked activities in any days the agent replaced.
+      if (tripFields.days) {
+        const oldDays = useStore.getState().trips[snapshotActiveTripId]?.days ?? []
+        tripFields.days = preserveLockedActivities(oldDays, tripFields.days)
+      }
       updateTrip(snapshotActiveTripId, tripFields as Partial<import('@/lib/types').TripPlan>)
     }
     // 'chat-only' — nothing to update

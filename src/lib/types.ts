@@ -107,6 +107,7 @@ export interface TripPreferences {
   mustAvoid?: string              // free-text hard constraints
   exactBudget?: ExactBudget | null  // when set, overrides budgetLevel as a hard cap
   customInterests?: string[]      // user-added interest tags beyond INTEREST_OPTIONS
+  showLocalPrices?: boolean       // show original local price as a muted secondary value (default true)
 }
 
 export const DEFAULT_PREFERENCES: TripPreferences = {
@@ -122,6 +123,7 @@ export const DEFAULT_PREFERENCES: TripPreferences = {
   mustAvoid: '',
   exactBudget: null,
   customInterests: [],
+  showLocalPrices: true,
 }
 
 export type SuggestionType =

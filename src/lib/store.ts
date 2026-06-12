@@ -3,7 +3,7 @@
 import { create } from 'zustand'
 import { persist, createJSONStorage } from 'zustand/middleware'
 import type { TripPlan, Day, Activity, ChatMessage, AgentSuggestion, WeatherForecast, AgentSettings, TripPreferences } from './types'
-import type { RatesMap } from './currency'
+import { convertAmount, FALLBACK_RATES, type RatesMap } from './currency'
 import { DEFAULT_AGENT_SETTINGS, DEFAULT_PREFERENCES } from './types'
 import { recalculateDay } from './recalculate'
 
@@ -41,6 +41,10 @@ interface AppState {
   updateAgentSettings: (patch: Partial<AgentSettings>) => void
   updateDraftPreferences: (patch: Partial<TripPreferences>) => void
   setUserDefaults: (prefs: TripPreferences) => void
+  // Single source of truth for the trip's display currency. Converts the cap and
+  // the exact-budget amount so their real value is preserved, and keeps
+  // budget.currency and preferences.exactBudget.currency in lockstep.
+  setTripDisplayCurrency: (tripId: string, currency: string) => void
 
   // ── Day ──
   updateDay: (tripId: string, dayId: string, patch: Partial<Day>) => void
@@ -55,6 +59,15 @@ interface AppState {
     toIndex: number
   ) => void
   updateActivity: (
+    tripId: string,
+    dayId: string,
+    activityId: string,
+    patch: Partial<Activity>
+  ) => void
+  // Manual in-place edit: applies the patch, AUTO-LOCKS the card (protects the
+  // human edit from the AI), and reflows timings via the same recalc the drag
+  // path uses (anchored at the edited card when its start time changed).
+  saveActivityEdit: (
     tripId: string,
     dayId: string,
     activityId: string,
@@ -196,6 +209,40 @@ export const useStore = create<AppState>()(
         set((s) => ({ draftPreferences: { ...s.draftPreferences, ...patch } })),
       setUserDefaults: (prefs) => set({ userDefaults: prefs }),
 
+      setTripDisplayCurrency: (tripId, currency) =>
+        set((s) => {
+          const trip = s.trips[tripId]
+          if (!trip) return s
+          const from = trip.budget.currency
+          if (!currency || currency === from) return s
+          const rates = s.exchangeRates ?? FALLBACK_RATES
+          const newCap = trip.budget.cap > 0
+            ? Math.round(convertAmount(trip.budget.cap, from, currency, rates))
+            : trip.budget.cap
+          const prefs = trip.preferences
+          const newPrefs: TripPreferences = prefs.exactBudget
+            ? {
+                ...prefs,
+                exactBudget: {
+                  ...prefs.exactBudget,
+                  amount: Math.round(convertAmount(prefs.exactBudget.amount, prefs.exactBudget.currency, currency, rates)),
+                  currency,
+                },
+              }
+            : prefs
+          return {
+            trips: {
+              ...s.trips,
+              [tripId]: {
+                ...trip,
+                budget: { ...trip.budget, cap: newCap, currency },
+                preferences: newPrefs,
+                updatedAt: now(),
+              },
+            },
+          }
+        }),
+
       // ── Day ───────────────────────────────────────────────────────────────
 
       updateDay: (tripId, dayId, patch) =>
@@ -254,6 +301,24 @@ export const useStore = create<AppState>()(
                 d.activities.map((a) => (a.id === activityId ? { ...a, ...patch } : a))
               )
               return { ...d, activities }
+            }),
+          })),
+        })),
+
+      saveActivityEdit: (tripId, dayId, activityId, patch) =>
+        set((s) => ({
+          trips: patchTrip(s.trips, tripId, (trip) => ({
+            days: trip.days.map((d) => {
+              if (d.id !== dayId) return d
+              const idx = d.activities.findIndex((a) => a.id === activityId)
+              // If the start time was edited, anchor the reflow at THIS card so
+              // the new time sticks and only downstream timings shift. Otherwise
+              // anchor at the day start (index 0) as drag/duration changes do.
+              const anchor = patch.startTime !== undefined && idx > 0 ? idx : 0
+              const merged = d.activities.map((a) =>
+                a.id === activityId ? { ...a, ...patch, locked: true } : a
+              )
+              return { ...d, activities: recalculateDay(merged, anchor) }
             }),
           })),
         })),

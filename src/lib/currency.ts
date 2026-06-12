@@ -38,6 +38,15 @@ export const FALLBACK_RATES: RatesMap = {
 
 export const RATES_TTL_MS = 24 * 60 * 60 * 1000  // 24 hours
 
+// ─── Currency picker options ──────────────────────────────────────────────────
+// Shared by the activity-card cost editor, the global currency selector, and the
+// exact-budget editor so they all offer the same set. Every code here must exist
+// in FALLBACK_RATES (and Frankfurter) so conversion always works.
+export const COMMON_CURRENCIES: string[] = [
+  'USD', 'EUR', 'GBP', 'JPY', 'SGD', 'AUD', 'CAD', 'NZD', 'CHF',
+  'CNY', 'HKD', 'KRW', 'THB', 'INR', 'MYR', 'IDR', 'PHP', 'TWD', 'VND', 'AED',
+]
+
 // ─── API fetch ────────────────────────────────────────────────────────────────
 
 /**

@@ -17,7 +17,7 @@ import {
   type Modifier,
 } from '@dnd-kit/core'
 import { arrayMove } from '@dnd-kit/sortable'
-import { MapPin, Calendar, DollarSign, Gauge, Star, SlidersHorizontal, AlertTriangle } from 'lucide-react'
+import { MapPin, Calendar, Gauge, Star, SlidersHorizontal, AlertTriangle, ChevronDown } from 'lucide-react'
 import type { TripPlan, Day, Activity } from '@/lib/types'
 import { useStore } from '@/lib/store'
 import {
@@ -29,6 +29,7 @@ import {
   getBudgetLabel,
 } from '@/lib/utils'
 import { calculateTripBudgetConverted } from '@/lib/recalculate'
+import { COMMON_CURRENCIES } from '@/lib/currency'
 import { useExchangeRates } from '@/hooks/useExchangeRates'
 import { DayCard } from './DayCard'
 import { ActivityCard } from './ActivityCard'
@@ -51,6 +52,7 @@ export function ItineraryView({ trip }: ItineraryViewProps) {
   const reorderActivities = useStore((s) => s.reorderActivities)
   const moveActivity = useStore((s) => s.moveActivity)
   const updateTrip = useStore((s) => s.updateTrip)
+  const setTripDisplayCurrency = useStore((s) => s.setTripDisplayCurrency)
   const isGenerating = useStore((s) => s.isGenerating)
 
   // Currency conversion — fetches live rates on mount, falls back to hardcoded table
@@ -166,6 +168,9 @@ export function ItineraryView({ trip }: ItineraryViewProps) {
   const spentPct = capSet ? Math.min((spent / budget.cap) * 100, 100) : 0
   const overlayActivity = activeDragId ? findActivity(activeDragId) : null
 
+  // Show original local prices as a muted secondary value on cards (default on).
+  const showLocalPrices = preferences?.showLocalPrices !== false
+
   // Detect probable currency error: converted total > 5× the stated cap
   const hasCurrencyError = capSet && spent > 5 * budget.cap
 
@@ -212,17 +217,20 @@ export function ItineraryView({ trip }: ItineraryViewProps) {
           )}
         </div>
 
-        {/* Budget bar */}
+        {/* Budget bar (with currency selector) */}
         {capSet && (
           <div className="mt-3">
-            <div className="flex items-center justify-between mb-1.5">
+            <div className="flex items-center justify-between mb-1.5 gap-2">
               <span className="text-[10px] text-[#444]">Estimated spend</span>
-              <span className={cn('text-[11px] font-semibold tabular-nums', overBudget ? 'text-[#ef4444]' : 'text-[#888]')}>
-                {formatCurrency(spent, budget.currency)}
-                <span className="text-[#333] font-normal">
-                  {' '}/ {formatCurrency(budget.cap, budget.currency)}
+              <div className="flex items-center gap-2">
+                <span className={cn('text-[11px] font-semibold tabular-nums', overBudget ? 'text-[#ef4444]' : 'text-[#888]')}>
+                  {formatCurrency(spent, budget.currency)}
+                  <span className="text-[#333] font-normal">
+                    {' '}/ {formatCurrency(budget.cap, budget.currency)}
+                  </span>
                 </span>
-              </span>
+                <CurrencySelector value={budget.currency} onChange={(c) => setTripDisplayCurrency(trip.id, c)} />
+              </div>
             </div>
             <div className="h-px bg-[#1f1f1f] rounded-full overflow-hidden">
               <div
@@ -235,6 +243,17 @@ export function ItineraryView({ trip }: ItineraryViewProps) {
                 {formatCurrency(spent - budget.cap, budget.currency)} over budget
               </p>
             )}
+          </div>
+        )}
+
+        {/* Spend + currency selector when there is no explicit cap */}
+        {!capSet && (
+          <div className="mt-3 flex items-center justify-between gap-2">
+            <span className="text-[10px] text-[#444]">
+              Estimated spend{' '}
+              <span className="text-[#888] font-semibold tabular-nums">{formatCurrency(spent, budget.currency)}</span>
+            </span>
+            <CurrencySelector value={budget.currency} onChange={(c) => setTripDisplayCurrency(trip.id, c)} />
           </div>
         )}
 
@@ -363,9 +382,11 @@ export function ItineraryView({ trip }: ItineraryViewProps) {
                     <DayCard
                       day={day}
                       index={index}
+                      tripId={trip.id}
                       tripCurrency={budget.currency}
                       isDraggingAny={activeDragId !== null}
                       rates={rates}
+                      showLocalPrices={showLocalPrices}
                     />
                   </motion.div>
                 ))}
@@ -387,6 +408,7 @@ export function ItineraryView({ trip }: ItineraryViewProps) {
                       hasConflict={false}
                       budgetCurrency={budget.currency}
                       rates={rates}
+                      showLocalPrices={showLocalPrices}
                     />
                   </div>
                 )}
@@ -414,6 +436,29 @@ function TabButton({ active, onClick, children }: { active: boolean; onClick: ()
     >
       {children}
     </button>
+  )
+}
+
+// ─── CurrencySelector ─────────────────────────────────────────────────────────
+// Compact dropdown that sets the trip's display currency (budget.currency).
+
+function CurrencySelector({ value, onChange }: { value: string; onChange: (c: string) => void }) {
+  const options = [...new Set([value, ...COMMON_CURRENCIES])]
+  return (
+    <div className="relative">
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        title="Display currency"
+        aria-label="Display currency"
+        className="appearance-none bg-[#1a1a1a] border border-[#2a2a2a] text-[#aaa] text-[11px] font-medium rounded-md pl-2 pr-6 py-1 hover:border-[#444] focus:outline-none focus:border-[#555] cursor-pointer transition-colors tabular-nums"
+      >
+        {options.map((c) => (
+          <option key={c} value={c}>{c}</option>
+        ))}
+      </select>
+      <ChevronDown size={11} className="pointer-events-none absolute right-1.5 top-1/2 -translate-y-1/2 text-[#555]" />
+    </div>
   )
 }
 

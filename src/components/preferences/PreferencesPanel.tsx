@@ -19,14 +19,11 @@ import {
   getTripStyleLabel,
   getDiningLabel,
 } from '@/lib/utils'
+import { COMMON_CURRENCIES } from '@/lib/currency'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
-
-const CURRENCIES = [
-  'SGD', 'USD', 'EUR', 'GBP', 'JPY', 'AUD', 'CAD', 'CHF',
-  'MYR', 'HKD', 'NZD', 'KRW', 'THB', 'IDR', 'INR', 'CNY',
-  'DKK', 'NOK', 'SEK', 'AED',
-]
+// Use the shared list so every code has a known conversion rate.
+const CURRENCIES = COMMON_CURRENCIES
 
 // Format a raw input string into a locale-style number with commas.
 // Strips all non-digit chars, parses, and re-formats. Returns "" for empty/zero.
@@ -52,6 +49,7 @@ export function PreferencesPanel({ open, onClose }: PreferencesPanelProps) {
   const draft        = useStore((s) => s.draftPreferences)
   const updateDraft  = useStore((s) => s.updateDraftPreferences)
   const updateTrip   = useStore((s) => s.updateTrip)
+  const setTripDisplayCurrency = useStore((s) => s.setTripDisplayCurrency)
   const overlayRef   = useRef<HTMLDivElement>(null)
   const customInputRef = useRef<HTMLInputElement>(null)
 
@@ -278,8 +276,17 @@ export function PreferencesPanel({ open, onClose }: PreferencesPanelProps) {
                         <select
                           value={currency}
                           onChange={(e) => {
-                            setCurrency(e.target.value)
-                            commitExactBudget(amountStr, e.target.value, perPerson)
+                            const next = e.target.value
+                            setCurrency(next)
+                            if (activeTripId) {
+                              // One source of truth: this currency IS the trip's
+                              // display currency. Convert cap + exact amount via store.
+                              setTripDisplayCurrency(activeTripId, next)
+                              const fresh = useStore.getState().trips[activeTripId]?.preferences.exactBudget
+                              if (fresh?.amount) setAmountStr(fresh.amount.toLocaleString('en'))
+                            } else {
+                              commitExactBudget(amountStr, next, perPerson)
+                            }
                           }}
                           className={cn(
                             'appearance-none bg-[#0d0d0d] border border-[#2a2a2a] rounded-lg',
@@ -332,6 +339,20 @@ export function PreferencesPanel({ open, onClose }: PreferencesPanelProps) {
                         Leave blank to use the slider above
                       </p>
                     )}
+                  </div>
+
+                  {/* Show local prices toggle */}
+                  <div className="mt-4 flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-[12px] font-medium text-[#888]">Show local prices</p>
+                      <p className="text-[10px] text-[#444] leading-snug">
+                        Display each item&apos;s original currency under the converted price
+                      </p>
+                    </div>
+                    <Toggle
+                      checked={prefs.showLocalPrices !== false}
+                      onChange={(v) => update({ showLocalPrices: v })}
+                    />
                   </div>
                 </div>
 
@@ -553,6 +574,30 @@ export function PreferencesPanel({ open, onClose }: PreferencesPanelProps) {
         </motion.div>
       )}
     </AnimatePresence>
+  )
+}
+
+// ─── Toggle ──────────────────────────────────────────────────────────────────
+
+function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      onClick={() => onChange(!checked)}
+      className={cn(
+        'relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors',
+        checked ? 'bg-white' : 'bg-[#2a2a2a]',
+      )}
+    >
+      <span
+        className={cn(
+          'inline-block h-3.5 w-3.5 rounded-full transition-transform',
+          checked ? 'translate-x-[18px] bg-black' : 'translate-x-[3px] bg-[#666]',
+        )}
+      />
+    </button>
   )
 }
 

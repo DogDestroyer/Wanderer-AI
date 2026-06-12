@@ -12,12 +12,14 @@ import { SortableActivityCard } from './SortableActivityCard'
 interface DayCardProps {
   day: Day
   index: number
+  tripId: string
   tripCurrency: string
   isDraggingAny: boolean
   rates?: RatesMap
+  showLocalPrices?: boolean
 }
 
-export function DayCard({ day, index, tripCurrency, isDraggingAny, rates = FALLBACK_RATES }: DayCardProps) {
+export function DayCard({ day, index, tripId, tripCurrency, isDraggingAny, rates = FALLBACK_RATES, showLocalPrices }: DayCardProps) {
   const { activities, weather, dayNotes } = day
 
   const dayTotal = calculateDayBudgetConverted(activities, tripCurrency, rates)
@@ -111,8 +113,11 @@ export function DayCard({ day, index, tripCurrency, isDraggingAny, rates = FALLB
                   hasConflict={conflictIds.has(activity.id)}
                   prevTravelMins={actIdx > 0 ? activities[actIdx - 1].travelTimeToNextMinutes : 0}
                   isDraggingAny={isDraggingAny}
+                  tripId={tripId}
+                  dayId={day.id}
                   budgetCurrency={tripCurrency}
                   rates={rates}
+                  showLocalPrices={showLocalPrices}
                 />
               ))}
             </div>

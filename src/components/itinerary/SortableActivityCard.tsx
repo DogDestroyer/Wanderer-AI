@@ -6,6 +6,8 @@ import { GripVertical } from 'lucide-react'
 import type { Activity } from '@/lib/types'
 import { cn } from '@/lib/utils'
 import type { RatesMap } from '@/lib/currency'
+import { useStore } from '@/lib/store'
+import { showToast } from '@/components/ui/Toast'
 import { ActivityCard, TravelConnector } from './ActivityCard'
 
 interface Props {
@@ -14,8 +16,11 @@ interface Props {
   hasConflict: boolean
   prevTravelMins: number
   isDraggingAny: boolean
+  tripId: string
+  dayId: string
   budgetCurrency?: string
   rates?: RatesMap
+  showLocalPrices?: boolean
 }
 
 export function SortableActivityCard({
@@ -24,9 +29,15 @@ export function SortableActivityCard({
   hasConflict,
   prevTravelMins,
   isDraggingAny,
+  tripId,
+  dayId,
   budgetCurrency,
   rates,
+  showLocalPrices,
 }: Props) {
+  const toggleActivityLock = useStore((s) => s.toggleActivityLock)
+  const saveActivityEdit = useStore((s) => s.saveActivityEdit)
+
   const {
     attributes,
     listeners,
@@ -43,6 +54,12 @@ export function SortableActivityCard({
   const style = {
     transform: isDragging ? undefined : CSS.Transform.toString(transform),
     transition: isDragging ? undefined : transition,
+  }
+
+  function handleSaveEdit(patch: Partial<Activity>) {
+    saveActivityEdit(tripId, dayId, activity.id, patch)
+    // Manual edits auto-lock the card so the AI never overwrites human changes.
+    showToast({ message: 'Card locked to protect your edits', type: 'success' })
   }
 
   return (
@@ -88,6 +105,9 @@ export function SortableActivityCard({
           hasConflict={hasConflict}
           budgetCurrency={budgetCurrency}
           rates={rates}
+          showLocalPrices={showLocalPrices}
+          onToggleLock={() => toggleActivityLock(tripId, dayId, activity.id)}
+          onSaveEdit={handleSaveEdit}
         />
       </div>
     </div>
