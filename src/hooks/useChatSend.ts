@@ -150,19 +150,45 @@ export function useChatSend() {
 
       type StreamPayload =
         | { type: 'delta';      text: string }
+        | { type: 'ping';       elapsedMs: number }
         | { type: 'done';       response: AgentTripResponse }
         | { type: 'error';      message: string }
         | { type: 'json_error'; naturalMessage: string; parseError?: string }
 
       let jsonError: { naturalMessage: string } | null = null
       // Did the server send a terminal event ('done' or 'error')? If the stream
-      // ends without one, the function was cut off mid-response (e.g. a Vercel
-      // serverless timeout) and we must NOT silently swallow it.
+      // ends without one, the function was cut off mid-response and we must NOT
+      // silently swallow it.
       let receivedTerminal = false
+
+      // Inactivity watchdog: the server heartbeats every 10s, so a healthy
+      // generation never goes quiet. If NOTHING (not even a ping) arrives for
+      // 30s, the connection is genuinely dead — abort and surface the interrupted
+      // state instead of hanging forever.
+      const IDLE_MS = 30_000
+      async function readWithTimeout(): Promise<ReadableStreamReadResult<Uint8Array>> {
+        let timer: ReturnType<typeof setTimeout> | undefined
+        const timeout = new Promise<never>((_, reject) => {
+          timer = setTimeout(() => reject(new Error('The connection went quiet — the response was interrupted.')), IDLE_MS)
+        })
+        try {
+          return await Promise.race([reader.read(), timeout])
+        } finally {
+          clearTimeout(timer)
+        }
+      }
 
       // eslint-disable-next-line no-constant-condition
       while (true) {
-        const { done, value } = await reader.read()
+        let result: ReadableStreamReadResult<Uint8Array>
+        try {
+          result = await readWithTimeout()
+        } catch (idleErr) {
+          // Idle timeout — treat as a cut stream (handled by the caller as interrupted).
+          reader.cancel().catch(() => {})
+          throw idleErr
+        }
+        const { done, value } = result
         if (done) break
         buffer += decoder.decode(value, { stream: true })
         const lines = buffer.split('\n')
@@ -175,6 +201,8 @@ export function useChatSend() {
           if (payload.type === 'delta') {
             streamedText += payload.text
             updateLastAssistantMessage(chatId, streamedText)
+          } else if (payload.type === 'ping') {
+            // Keepalive only — its arrival resets the idle watchdog above.
           } else if (payload.type === 'done') {
             receivedTerminal = true
             applyTripResponse(payload.response, chatId, snapshotActiveTripId)

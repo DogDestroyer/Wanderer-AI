@@ -393,9 +393,23 @@ export async function POST(request: Request): Promise<Response> {
 
   const readable = new ReadableStream<Uint8Array>({
     async start(controller) {
+      let closed = false
       function send(payload: object) {
+        if (closed) return
         controller.enqueue(encoder.encode(`data: ${JSON.stringify(payload)}\n\n`))
       }
+
+      // ── Heartbeats ──────────────────────────────────────────────────────────
+      // The itinerary JSON is generated AFTER the chat preamble with no deltas
+      // emitted, so the connection can go silent for ~100s+. A silent connection
+      // can be dropped by a browser/proxy/CDN even though the function keeps
+      // running — which surfaced to users as a phantom "interrupted" state. A
+      // keepalive every 10s guarantees bytes are always flowing. The client
+      // ignores ping payloads except to keep its generating state alive.
+      const startedAt = Date.now()
+      const heartbeat = setInterval(() => {
+        try { send({ type: 'ping', elapsedMs: Date.now() - startedAt }) } catch { /* closed */ }
+      }, 10_000)
 
       try {
         const stream = client.messages.stream({
@@ -478,6 +492,8 @@ export async function POST(request: Request): Promise<Response> {
         const message = err instanceof Error ? err.message : 'An unexpected error occurred'
         send({ type: 'error', message })
       } finally {
+        clearInterval(heartbeat)
+        closed = true
         controller.close()
       }
     },
@@ -488,6 +504,9 @@ export async function POST(request: Request): Promise<Response> {
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache',
       Connection: 'keep-alive',
+      // Disable proxy/CDN buffering so heartbeats and deltas reach the client
+      // immediately instead of being held back (which would defeat the keepalive).
+      'X-Accel-Buffering': 'no',
     },
   })
 }
