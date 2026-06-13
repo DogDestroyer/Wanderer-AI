@@ -29,11 +29,13 @@ import {
   getBudgetLabel,
 } from '@/lib/utils'
 import { calculateTripBudgetConverted } from '@/lib/recalculate'
-import { COMMON_CURRENCIES } from '@/lib/currency'
+import { COMMON_CURRENCIES, convertAmount } from '@/lib/currency'
 import { useExchangeRates } from '@/hooks/useExchangeRates'
+import { useLivePrices } from '@/hooks/useLivePrices'
 import { DayCard } from './DayCard'
 import { ActivityCard } from './ActivityCard'
 import { BudgetPanel } from './BudgetPanel'
+import { LiveTravelPanel } from './LiveTravelPanel'
 import { MapPanel } from '@/components/map/MapPanel'
 import { PreferenceSliders } from '@/components/preferences/PreferenceSliders'
 import { AssumptionChips } from './AssumptionChips'
@@ -57,6 +59,9 @@ export function ItineraryView({ trip }: ItineraryViewProps) {
 
   // Currency conversion — fetches live rates on mount, falls back to hardcoded table
   const rates = useExchangeRates()
+
+  // Live flight + hotel prices (cached on the trip; refetched only on param change)
+  const { loading: liveLoading, refresh: refreshLive } = useLivePrices(trip)
 
   const [activeTab, setActiveTab] = useState<'itinerary' | 'budget' | 'map'>('itinerary')
   const [showSliders, setShowSliders] = useState(false)
@@ -162,7 +167,11 @@ export function ItineraryView({ trip }: ItineraryViewProps) {
     showToast({ message: 'Re-planning with new preferences…', type: 'info' })
   }
 
-  const spent = calculateTripBudgetConverted(trip.days, budget.currency, rates)
+  const activitiesSpent = calculateTripBudgetConverted(trip.days, budget.currency, rates)
+  // Flight (live or estimate) is a transport line item in the budget.
+  const flightOffer = trip.liveData?.flight ?? null
+  const flightCost = flightOffer ? convertAmount(flightOffer.price, flightOffer.currency, budget.currency, rates) : 0
+  const spent = activitiesSpent + flightCost
   const capSet = budget.cap > 0
   const overBudget = capSet && spent > budget.cap
   const spentPct = capSet ? Math.min((spent / budget.cap) * 100, 100) : 0
@@ -391,6 +400,9 @@ export function ItineraryView({ trip }: ItineraryViewProps) {
                 variants={{ show: { transition: { staggerChildren: 0.06 } } }}
                 className="p-4 md:p-6 space-y-3 max-w-2xl mx-auto w-full pb-10"
               >
+                {/* Live flights & hotels (cached on the trip) */}
+                <LiveTravelPanel trip={trip} rates={rates} loading={liveLoading} onRefresh={refreshLive} />
+
                 {localDays.map((day, index) => (
                   <motion.div
                     key={day.id}

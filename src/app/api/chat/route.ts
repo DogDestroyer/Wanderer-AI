@@ -394,6 +394,26 @@ The trip skeleton already exists (shown below). Generate activities for ONLY the
   return ''
 }
 
+// Ground accommodation suggestions in real hotels (from liteAPI, cached on the trip).
+function buildHotelGroundingPrompt(trip: TripPlan | null | undefined): string {
+  const hotels = trip?.liveData?.hotels?.filter((h) => !h.isEstimate) ?? []
+  if (hotels.length === 0) return ''
+  const lines = hotels.slice(0, 8).map((h) => {
+    const stars = h.stars ? `${h.stars}★` : ''
+    const rating = h.rating ? `, rated ${h.rating}` : ''
+    return `- ${h.name} (${stars}${rating}): ${h.currency} ${h.pricePerNight}/night`
+  })
+  return `
+
+## Real hotels available (USE THESE — do not invent accommodation)
+These are REAL hotels with live nightly prices for ${trip!.liveData!.hotels[0].city}:
+${lines.join('\n')}
+When you create or change an accommodation activity, pick from or reference one of
+these real hotels by name and use its real nightly price (multiply by nights for
+the cost). Set that cost's isEstimate to false. Do NOT invent hotel names or
+prices while these real options are available.`
+}
+
 export async function POST(request: Request): Promise<Response> {
   const body = (await request.json()) as {
     messages: Array<{ role: 'user' | 'assistant'; content: string }>
@@ -418,9 +438,13 @@ export async function POST(request: Request): Promise<Response> {
   const settingsPrompt     = buildSettingsPrompt(agentSettings)
   const preferencesPrompt  = buildPreferencesPrompt(activePreferences)
   const modePrompt         = buildModePrompt(mode, fillDayIds)
+  const groundingPrompt    = buildHotelGroundingPrompt(trip)
   const today = new Date().toISOString().split('T')[0]
+  // Strip the bulky liveData from the trip JSON (its hotels are summarised in the
+  // grounding block) to keep the prompt lean.
+  const tripForPrompt = trip ? { ...trip, liveData: undefined } : trip
   const systemPrompt = trip
-    ? `${BASE_SYSTEM_PROMPT}${settingsPrompt}${preferencesPrompt}${modePrompt}\n\n## Current active trip\n\nThe user currently has this trip open. Use its day IDs when patching days.\n\n${JSON.stringify(trip, null, 2)}`
+    ? `${BASE_SYSTEM_PROMPT}${settingsPrompt}${preferencesPrompt}${modePrompt}${groundingPrompt}\n\n## Current active trip\n\nThe user currently has this trip open. Use its day IDs when patching days.\n\n${JSON.stringify(tripForPrompt, null, 2)}`
     : `${BASE_SYSTEM_PROMPT}${settingsPrompt}${preferencesPrompt}${modePrompt}\n\nNo active trip. Today's date: ${today}. Always use action "create_trip".`
 
   const encoder = new TextEncoder()

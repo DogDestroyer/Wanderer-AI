@@ -372,6 +372,25 @@ export function PreferencesPanel({ open, onClose }: PreferencesPanelProps) {
                   rightHint="City"
                   onChange={(v) => update({ tripStyle: v })}
                 />
+
+                {/* Flying from — origin city/airport for live flight prices */}
+                <div className="mt-4">
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="text-[12px] font-medium text-[#888]">Flying from</span>
+                    <span className="text-[10px] text-[#444]">for live flight prices</span>
+                  </div>
+                  <input
+                    type="text"
+                    value={prefs.flyingFrom ?? ''}
+                    onChange={(e) => update({ flyingFrom: e.target.value })}
+                    placeholder="e.g. Singapore or SIN"
+                    className={cn(
+                      'w-full bg-[#0d0d0d] border border-[#2a2a2a] rounded-lg px-3 py-2',
+                      'text-[12px] text-[#f0f0f0] placeholder:text-[#333]',
+                      'focus:outline-none focus:border-[#444] transition-colors',
+                    )}
+                  />
+                </div>
               </Section>
 
               {/* ── Interests ──────────────────────────────────────────────────── */}

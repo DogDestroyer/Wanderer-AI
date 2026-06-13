@@ -2,7 +2,7 @@
 
 import { create } from 'zustand'
 import { persist, createJSONStorage } from 'zustand/middleware'
-import type { TripPlan, Day, Activity, ChatMessage, AgentSuggestion, WeatherForecast, AgentSettings, TripPreferences } from './types'
+import type { TripPlan, Day, Activity, ChatMessage, AgentSuggestion, WeatherForecast, AgentSettings, TripPreferences, TripLiveData } from './types'
 import { convertAmount, FALLBACK_RATES, type RatesMap } from './currency'
 import { DEFAULT_AGENT_SETTINGS, DEFAULT_PREFERENCES } from './types'
 import { recalculateDay } from './recalculate'
@@ -81,6 +81,9 @@ interface AppState {
   updateLastAssistantMessage: (tripId: string, content: string, isStreaming?: boolean) => void
   clearChatThread: (key: string) => void
   setIsGenerating: (v: boolean) => void
+
+  // ── Live prices (flights + hotels) ──
+  setTripLiveData: (tripId: string, liveData: TripLiveData) => void
 
   // ── Weather ──
   updateTripWeather: (tripId: string, weatherByDayId: Record<string, WeatherForecast>) => void
@@ -383,6 +386,17 @@ export const useStore = create<AppState>()(
         }),
 
       setIsGenerating: (v) => set({ isGenerating: v }),
+
+      // ── Live prices ─────────────────────────────────────────────────────────
+      // Cached flight + hotel data. Persisted (survives refresh) but not a user
+      // edit, so we don't bump updatedAt.
+
+      setTripLiveData: (tripId, liveData) =>
+        set((s) => {
+          const trip = s.trips[tripId]
+          if (!trip) return s
+          return { trips: { ...s.trips, [tripId]: { ...trip, liveData } } }
+        }),
 
       // ── Weather ───────────────────────────────────────────────────────────
       // Weather is transient data — we update days directly without bumping updatedAt.
