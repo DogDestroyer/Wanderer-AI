@@ -1,4 +1,5 @@
 import { test, expect, type Page, type Route } from '@playwright/test'
+import { driveWizardToBuild } from './helpers/wizard'
 
 // Chunked generation completion contract + batch resilience. Uses a MOCKED
 // /api/chat so it's deterministic and free: a 9-day skeleton, batch [d4,d5,d6]
@@ -25,7 +26,8 @@ async function loadApp(page: Page) {
     await page.click('button[type="submit"]')
     await page.waitForURL('**/app', { timeout: 15_000 })
   }
-  await expect(page.locator('textarea').first()).toBeVisible({ timeout: 15_000 })
+  // Fresh start now opens the new-trip wizard (the hero was removed).
+  await expect(page.getByTestId('wizard')).toBeVisible({ timeout: 15_000 })
 }
 
 const DAYS = 9
@@ -82,8 +84,7 @@ test('a failed batch does not abort the rest; incomplete state + resume complete
   await loadApp(page)
   await installMock(page)
 
-  await page.locator('textarea').first().fill('9 days in Tokyo')
-  await page.keyboard.press('Enter')
+  await driveWizardToBuild(page, '9 days in Tokyo')
 
   // Wait until generation settles (batches are instant mocks).
   await page.waitForFunction(() => {
@@ -136,8 +137,7 @@ test('requested day count is honored end-to-end (all filled, none empty)', async
     return route.fulfill({ status: 200, headers: { 'Content-Type': 'text/event-stream' }, body: sse({ type: 'done', response: { action: 'chat-only', message: 'hi' } }) })
   })
 
-  await page.locator('textarea').first().fill('9 days in Tokyo')
-  await page.keyboard.press('Enter')
+  await driveWizardToBuild(page, '9 days in Tokyo')
   await page.waitForFunction(() => {
     const s = JSON.parse(localStorage.getItem('wandr-v1') || '{}').state
     const t = s?.trips?.trip_mock

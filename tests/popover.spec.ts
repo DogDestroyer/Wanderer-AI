@@ -24,7 +24,9 @@ async function loadApp(page: Page) {
     await page.click('button[type="submit"]')
     await page.waitForURL('**/app', { timeout: 15_000 })
   }
-  await expect(page.locator('textarea').first()).toBeVisible({ timeout: 15_000 })
+  // Fresh start now opens the new-trip wizard (the hero was removed); these
+  // tests seed a trip and reload right after, so just confirm the app is up.
+  await expect(page.getByTestId('wizard')).toBeVisible({ timeout: 15_000 })
 }
 
 const LONG_BUDGET = 'SGD ~180-230/night hotel + SGD ~40-60/day food & attractions per person (~USD 130-170 pp/day all-in)'

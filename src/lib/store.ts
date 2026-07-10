@@ -6,6 +6,20 @@ import type { TripPlan, Day, Activity, ChatMessage, AgentSuggestion, WeatherFore
 import { convertAmount, FALLBACK_RATES, type RatesMap } from './currency'
 import { DEFAULT_AGENT_SETTINGS, DEFAULT_PREFERENCES } from './types'
 import { recalculateDay } from './recalculate'
+import { EMPTY_WIZARD_DRAFT, WIZARD_TOTAL, type WizardDraft, type WizardStepId } from './wizard'
+
+// ─── New-trip wizard state ────────────────────────────────────────────────────
+// The full-screen planning wizard that replaces the old hero entry. `active`
+// gates the takeover; `draft` + `step` persist so a refresh resumes in place.
+// `returnTripId` remembers which trip to fall back to if the user cancels.
+export interface WizardState {
+  active: boolean
+  step: number            // 1..WIZARD_TOTAL
+  draft: WizardDraft
+  returnTripId: string | null
+}
+
+const INITIAL_WIZARD: WizardState = { active: false, step: 1, draft: EMPTY_WIZARD_DRAFT, returnTripId: null }
 
 // ─── State shape ──────────────────────────────────────────────────────────────
 
@@ -31,6 +45,15 @@ interface AppState {
   agentSettings: AgentSettings
   draftPreferences: TripPreferences  // pre-trip preference state (hero layout)
   userDefaults?: TripPreferences     // snapshot from last completed trip generation
+
+  // ── New-trip wizard ──
+  wizard: WizardState
+  startWizard: () => void
+  setWizardStep: (step: number) => void
+  updateWizardDraft: (patch: Partial<WizardDraft>) => void
+  toggleWizardSkip: (step: WizardStepId, skipped: boolean) => void
+  cancelWizard: () => void   // back out — restore the previous active trip
+  closeWizard: () => void    // finished (a trip now exists) — just dismiss
 
   // ── Trip CRUD ──
   createTrip: (trip: TripPlan) => void
@@ -180,6 +203,38 @@ export const useStore = create<AppState>()(
       agentSettings: DEFAULT_AGENT_SETTINGS,
       draftPreferences: DEFAULT_PREFERENCES,
       userDefaults: undefined,
+
+      // ── New-trip wizard ──────────────────────────────────────────────────────
+
+      wizard: INITIAL_WIZARD,
+
+      startWizard: () =>
+        set((s) => ({
+          // Deactivate any current trip so generation creates a NEW one (not an
+          // edit). Remember it so Cancel can restore the previous view.
+          activeTripId: null,
+          wizard: { active: true, step: 1, draft: { ...EMPTY_WIZARD_DRAFT }, returnTripId: s.activeTripId },
+        })),
+
+      setWizardStep: (step) =>
+        set((s) => ({ wizard: { ...s.wizard, step: Math.max(1, Math.min(WIZARD_TOTAL, step)) } })),
+
+      updateWizardDraft: (patch) =>
+        set((s) => ({ wizard: { ...s.wizard, draft: { ...s.wizard.draft, ...patch } } })),
+
+      toggleWizardSkip: (step, skipped) =>
+        set((s) => {
+          const cur = s.wizard.draft.skipped.filter((x) => x !== step)
+          return { wizard: { ...s.wizard, draft: { ...s.wizard.draft, skipped: skipped ? [...cur, step] : cur } } }
+        }),
+
+      cancelWizard: () =>
+        set((s) => ({
+          activeTripId: s.wizard.returnTripId,
+          wizard: { ...INITIAL_WIZARD },
+        })),
+
+      closeWizard: () => set(() => ({ wizard: { ...INITIAL_WIZARD } })),
 
       // ── Trip CRUD ──────────────────────────────────────────────────────────
 
@@ -540,6 +595,7 @@ export const useStore = create<AppState>()(
         agentSettings: s.agentSettings,
         draftPreferences: s.draftPreferences,
         userDefaults: s.userDefaults,
+        wizard: s.wizard,   // persist so a refresh mid-wizard resumes at the same step
       }),
     }
   )

@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
+import { motion } from 'framer-motion'
 import { AlertTriangle, RotateCw } from 'lucide-react'
 import { useStore } from '@/lib/store'
 import type { ChatMessage } from '@/lib/types'
@@ -9,17 +9,17 @@ import { useWeather } from '@/hooks/useWeather'
 import { ToastContainer } from '@/components/ui/Toast'
 import { Header } from './Header'
 import { ChatPanel } from '@/components/chat/ChatPanel'
-import { HeroLayout } from '@/components/chat/HeroLayout'
+import { Wizard } from '@/components/wizard/Wizard'
 import { ItineraryView } from '@/components/itinerary/ItineraryView'
 
 // ─── AppShell ─────────────────────────────────────────────────────────────────
-// Controls two layout modes:
-//   • Hero   — no active trip, centered input (Google-homepage style)
+// Controls the app's top-level modes:
+//   • Wizard — full-screen new-trip planning wizard (replaces the old hero)
 //   • Normal — active trip, itinerary + chat sidebar
 //
-// The transition fires when isGenerating becomes true (user has sent a message)
-// so the user sees feedback immediately. The itinerary renders once the trip
-// arrives from the AI.
+// A brand-new trip is started through the wizard (auto-opened on a fresh start,
+// or via Header "New trip"). Everything below the wizard — itinerary, tabs,
+// chat, live data — is unchanged.
 
 export function AppShell() {
   const hasHydrated  = useStore((s) => s._hasHydrated)
@@ -27,37 +27,36 @@ export function AppShell() {
   const trips        = useStore((s) => s.trips)
   const isGenerating = useStore((s) => s.isGenerating)
   const chatHistory  = useStore((s) => s.chatHistory)
+  const wizardActive = useStore((s) => s.wizard.active)
+  const startWizard  = useStore((s) => s.startWizard)
   const activeTrip   = activeTripId ? trips[activeTripId] : null
 
   // chatOpen: sidebar visibility in normal mode
   const [chatOpen, setChatOpen] = useState(true)
 
-  // A pre-trip conversation that exists but never produced a trip. This happens
-  // when a generation is interrupted (e.g. a dropped stream). We must NOT fall
-  // back to the bare hero screen in this case — that silent reset is exactly what
-  // made the bug so confusing. Instead we stay in normal mode and show a clear
-  // "interrupted, retry" state alongside the preserved conversation.
+  // A pre-trip conversation that exists but never produced a trip (e.g. a dropped
+  // stream). We must NOT silently reset — show a clear "interrupted, retry" state.
   const newChatMsgs = chatHistory['__new__'] ?? []
   const hasPendingNewChat = newChatMsgs.length > 0
 
-  // heroMode: true ONLY for a genuinely fresh start — no trip, not generating,
-  // and no in-progress/interrupted conversation to preserve.
-  const isHeroMode = !activeTripId && !isGenerating && !hasPendingNewChat
+  // A genuinely fresh start — no trip, nothing generating or interrupted. This is
+  // where the wizard belongs, so we auto-open it (the wizard IS the new-trip flow).
+  const isFreshStart = hasHydrated && !activeTripId && !isGenerating && !hasPendingNewChat
 
   // Weather hook (no-op when trip is null)
   useWeather(activeTrip)
 
-  // Open chat when wandr:focus-chat fires (e.g. Header "New trip" button)
+  // Auto-open the wizard on a fresh start.
+  useEffect(() => {
+    if (isFreshStart && !wizardActive) startWizard()
+  }, [isFreshStart, wizardActive, startWizard])
+
+  // Open chat when wandr:focus-chat fires
   useEffect(() => {
     function handler() { setChatOpen(true) }
     document.addEventListener('wandr:focus-chat', handler)
     return () => document.removeEventListener('wandr:focus-chat', handler)
   }, [])
-
-  // Always show chat panel when transitioning from hero mode (generation starting)
-  useEffect(() => {
-    if (isGenerating && !activeTripId) setChatOpen(true)
-  }, [isGenerating, activeTripId])
 
   // ── Skeleton until localStorage has been read ───────────────────────────────
   if (!hasHydrated) {
@@ -71,61 +70,53 @@ export function AppShell() {
     )
   }
 
+  // ── Wizard takeover ─────────────────────────────────────────────────────────
+  if (wizardActive) {
+    return (
+      <>
+        <ToastContainer />
+        <Wizard />
+      </>
+    )
+  }
+
   return (
     <div className="flex flex-col h-screen bg-[#0a0a0a] overflow-hidden">
       <ToastContainer />
-      <Header chatOpen={!isHeroMode && chatOpen} onToggleChat={() => setChatOpen((v) => !v)} />
+      <Header chatOpen={chatOpen} onToggleChat={() => setChatOpen((v) => !v)} />
 
-      {/* ── Layout switching with transition ─────────────────────────────────── */}
-      <AnimatePresence mode="wait" initial={false}>
-        {isHeroMode ? (
+      <motion.div
+        key="normal"
+        className="flex flex-1 overflow-hidden"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
+      >
+        {/* Main itinerary area */}
+        <main className="flex-1 overflow-y-auto min-h-0 min-w-0">
+          {activeTrip ? (
+            <ItineraryView trip={activeTrip} />
+          ) : isGenerating ? (
+            <GeneratingSkeleton />
+          ) : hasPendingNewChat ? (
+            /* Generation finished without a trip → interrupted, retry affordance. */
+            <InterruptedState messages={newChatMsgs} />
+          ) : (
+            /* Fresh start: the wizard is opening (effect above). Neutral hold. */
+            <div className="flex flex-1 items-center justify-center h-full">
+              <div className="w-5 h-5 border border-[#333] border-t-white rounded-full animate-spin" />
+            </div>
+          )}
+        </main>
 
-          /* ── HERO mode: full-screen centred layout ─────────────────────────── */
-          <motion.div
-            key="hero"
-            className="flex flex-1 overflow-hidden"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0, scale: 0.99, transition: { duration: 0.2 } }}
-            transition={{ duration: 0.3 }}
-          >
-            <HeroLayout />
-          </motion.div>
-
-        ) : (
-
-          /* ── NORMAL mode: itinerary + chat sidebar ─────────────────────────── */
-          <motion.div
-            key="normal"
-            className="flex flex-1 overflow-hidden"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
-          >
-            {/* Main itinerary area */}
-            <main className="flex-1 overflow-y-auto min-h-0 min-w-0">
-              {activeTrip ? (
-                <ItineraryView trip={activeTrip} />
-              ) : isGenerating ? (
-                /* Generating skeleton — trip not yet created */
-                <GeneratingSkeleton />
-              ) : (
-                /* Generation finished without a trip → interrupted. Show a clear
-                   retry affordance instead of silently dropping to the hero. */
-                <InterruptedState messages={newChatMsgs} />
-              )}
-            </main>
-
-            {/* Chat sidebar */}
-            {chatOpen && (
-              <div className="flex-shrink-0 w-full md:w-[380px] border-l border-[#1f1f1f] flex flex-col overflow-hidden">
-                <ChatPanel />
-              </div>
-            )}
-          </motion.div>
-
+        {/* Chat sidebar — also shown during the interrupted state so its retry
+            handler (a wandr:send-message listener) is mounted. */}
+        {(activeTrip || hasPendingNewChat) && chatOpen && (
+          <div className="flex-shrink-0 w-full md:w-[380px] border-l border-[#1f1f1f] flex flex-col overflow-hidden">
+            <ChatPanel />
+          </div>
         )}
-      </AnimatePresence>
+      </motion.div>
     </div>
   )
 }
@@ -150,6 +141,7 @@ function GeneratingSkeleton() {
 
 function InterruptedState({ messages }: { messages: ChatMessage[] }) {
   const clearChatThread = useStore((s) => s.clearChatThread)
+  const startWizard     = useStore((s) => s.startWizard)
 
   // The user's most recent prompt — what we resend on retry.
   const lastUserMessage = [...messages].reverse().find((m) => m.role === 'user')?.content ?? ''
@@ -166,8 +158,9 @@ function InterruptedState({ messages }: { messages: ChatMessage[] }) {
   }
 
   function startOver() {
+    // Drop the interrupted thread and relaunch the new-trip wizard.
     clearChatThread('__new__')
-    document.dispatchEvent(new CustomEvent('wandr:focus-chat'))
+    startWizard()
   }
 
   return (

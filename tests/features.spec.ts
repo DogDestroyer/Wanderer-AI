@@ -23,7 +23,9 @@ async function loadApp(page: Page) {
     await page.click('button[type="submit"]')
     await page.waitForURL('**/app', { timeout: 15_000 })
   }
-  await expect(page.locator('textarea').first()).toBeVisible({ timeout: 15_000 })
+  // Fresh start now opens the new-trip wizard (the hero was removed); this test
+  // seeds a trip and reloads right after, so just confirm the app is up.
+  await expect(page.getByTestId('wizard')).toBeVisible({ timeout: 15_000 })
 }
 
 const act = (id: string, title: string, category: string, s: string, e: string, loc: string, amt: number) => ({

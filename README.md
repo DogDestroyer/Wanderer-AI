@@ -15,7 +15,8 @@
 
 | Feature | Details |
 |---|---|
-| 🤖 **AI itinerary generation** | Chat with Claude to build a full day-by-day trip plan. The AI asks clarifying questions and structures every activity with times, costs, and travel estimates. |
+| 🧭 **Step-by-step planning wizard** | A full-screen, one-question-per-screen wizard (Typeform-style) is the new-trip entry: pick countries/cities, days, dates, party, budget, and interests from curated static data (zero AI), then Hodo builds the plan. Skipped steps become AI-inferred assumptions you can correct later. |
+| 🤖 **AI itinerary generation** | The wizard's answers become a single request to Claude, which builds a full day-by-day plan — every activity structured with times, costs, and travel estimates. In-trip, keep chatting to refine it. |
 | ✏️ **Drag & drop editing** | Reorder activities within a day or move them between days. Timing conflicts surface automatically. |
 | 💰 **Live budget tracker** | Every activity carries a cost estimate. Daily totals and a trip cap update in real time as you edit. |
 | 🗺️ **Interactive map** | All activities plotted on an OpenStreetMap tile layer with numbered markers, color-coded day routes, and animated polylines. |
@@ -148,8 +149,11 @@ src/
 │   │   └── TripMap.tsx         # Leaflet map, markers, polylines, FitBounds
 │   ├── preferences/
 │   │   └── PreferenceSliders.tsx  # Pace + budget sliders, Apply button
-│   ├── trips/
-│   │   └── WelcomeScreen.tsx   # Hero + feature grid (shown when no active trip)
+│   ├── wizard/                 # Full-screen new-trip wizard (replaces the hero)
+│   │   ├── Wizard.tsx          # Shell: progress, back/skip, slide transitions, keyboard
+│   │   ├── WizardKit.tsx       # NumberStepper, PillButton, TokenSearch, SelectableCard
+│   │   ├── FloatingPills.tsx   # Drifting selectable pills (steps 1 & 7)
+│   │   └── steps/              # Step1–9 (countries…notes, generation)
 │   └── ui/
 │       └── Toast.tsx           # ToastContainer + showToast helper
 │
@@ -157,7 +161,9 @@ src/
 │   └── useWeather.ts           # Fetch + cache weather for active trip
 │
 └── lib/
-    ├── store.ts                # Zustand store — trips, chat, preferences, weather
+    ├── store.ts                # Zustand store — trips, chat, preferences, wizard draft
+    ├── wizard.ts               # Wizard draft model, composeWizardMessage(), wizardToPreferences()
+    ├── data/                   # Static countries + cities datasets (no API/AI)
     ├── types.ts                # TripPlan, Activity, ChatMessage, WeatherForecast, …
     └── utils.ts                # cn(), formatTime(), getPaceLabel(), getBudgetLabel(), …
 ```

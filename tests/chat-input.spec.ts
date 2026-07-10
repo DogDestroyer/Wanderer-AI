@@ -1,4 +1,5 @@
 import { test, expect, type ConsoleMessage, type Request } from '@playwright/test'
+import { driveWizardToBuild, driveWizardConcrete } from './helpers/wizard'
 
 // ─── Chat input reproduction test ─────────────────────────────────────────────
 // Reproduces the "pressing Enter reloads the page / clears the chat" bug and
@@ -52,7 +53,7 @@ async function loadApp(page: import('@playwright/test').Page) {
     await page.click('button[type="submit"]')
     await page.waitForURL('**/app', { timeout: 15_000 })
   }
-  await expect(page.locator('textarea').first()).toBeVisible({ timeout: 15_000 })
+  await expect(page.getByTestId('wizard')).toBeVisible({ timeout: 15_000 })
 }
 
 test('pressing Enter sends the message without reloading the page', async ({ page }) => {
@@ -106,9 +107,8 @@ test('pressing Enter sends the message without reloading the page', async ({ pag
     await page.waitForURL('**/app', { timeout: 15_000 })
   }
 
-  // ── 3. Wait for the chat input to be interactive ────────────────────────────
-  const textarea = page.locator('textarea')
-  await expect(textarea.first()).toBeVisible({ timeout: 15_000 })
+  // ── 3. Wait for the app (new-trip wizard) to be interactive ─────────────────
+  await expect(page.getByTestId('wizard')).toBeVisible({ timeout: 15_000 })
 
   // Capture the instance id AFTER the app is interactive.
   const instanceBefore = await page.evaluate(() => (window as unknown as { __pageInstanceId: string }).__pageInstanceId)
@@ -121,12 +121,14 @@ test('pressing Enter sends the message without reloading the page', async ({ pag
     } catch { return 0 }
   })
 
-  // ── 4. Type a message and press Enter ───────────────────────────────────────
-  await textarea.first().click()
-  await textarea.first().fill(MESSAGE)
-  await page.keyboard.press('Enter')
+  // ── 4. Drive the wizard to generation ───────────────────────────────────────
+  // Replaces the old hero textarea: the wizard collects concrete answers
+  // (Tokyo, 5 days) plus the note, then fires ONE generation request through the
+  // same sendMessage pathway. The note carries MESSAGE so the persistence check
+  // still applies.
+  await driveWizardConcrete(page, { note: MESSAGE })
 
-  // Brief settle so the app switches out of hero mode and fires the request.
+  // Brief settle so the app enters the generation view and fires the request.
   await page.waitForTimeout(3_000)
 
   // ── 5. Wait for the request to RESOLVE, observing PROGRESSIVE streaming ──────
@@ -270,22 +272,22 @@ test('an interrupted stream shows the retry state, not the empty hero', async ({
     })
   })
 
-  await page.locator('textarea').first().fill(MESSAGE)
-  await page.keyboard.press('Enter')
+  await driveWizardToBuild(page, MESSAGE)
 
-  // The interrupted UI should appear (it does not require a real generation).
-  await expect(page.getByText(/generation was interrupted/i)).toBeVisible({ timeout: 20_000 })
-  await expect(page.getByRole('button', { name: /retry/i })).toBeVisible()
+  // The interrupted UI should appear in the wizard's generation step (it does
+  // not require a real generation): an explicit "that didn't finish / try again".
+  await expect(page.getByText(/that didn't finish/i)).toBeVisible({ timeout: 20_000 })
+  await expect(page.getByRole('button', { name: /try again/i })).toBeVisible()
 
-  // And we must NOT be sitting on the empty hero screen (detect via the hero's
-  // unique "Where to next?" headline — the chat input shares its placeholder).
-  const strandedOnEmptyHero = await page.evaluate(() => {
-    const onHero = Array.from(document.querySelectorAll('h1')).some((h) => /where to next/i.test(h.textContent ?? ''))
+  // And we must NOT have silently dropped to an empty entry with no trip and no
+  // explicit failure. The wizard is still up showing the interrupted state.
+  const strandedSilently = await page.evaluate(() => {
+    const hasFailureUi = /that didn't finish|was interrupted/i.test(document.body.innerText)
     const raw = localStorage.getItem('wandr-v1')
     const tripCount = raw ? Object.keys(JSON.parse(raw).state?.trips ?? {}).length : 0
-    return onHero && tripCount === 0
+    return tripCount === 0 && !hasFailureUi
   })
-  expect(strandedOnEmptyHero, 'interrupted generation must NOT silently fall back to the empty hero').toBe(false)
+  expect(strandedSilently, 'interrupted generation must show an explicit failure, not fail silently').toBe(false)
 
   // The user's message must still be preserved.
   const messagePreserved = await page.evaluate((msg) => {
@@ -299,7 +301,7 @@ test('an interrupted stream shows the retry state, not the empty hero', async ({
   console.log('\n──────── INTERRUPTED-STREAM TEST ────────')
   console.log('BASE_URL              :', BASE_URL)
   console.log('Interrupted state UI  : shown ✅')
-  console.log('Stranded empty hero?  :', strandedOnEmptyHero ? 'YES ❌' : 'no ✅')
+  console.log('Stranded silently?    :', strandedSilently ? 'YES ❌' : 'no ✅')
   console.log('Message preserved?    :', messagePreserved ? 'YES ✅' : 'NO ❌')
   console.log('─────────────────────────────────────────\n')
 })

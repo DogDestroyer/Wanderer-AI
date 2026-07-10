@@ -58,6 +58,24 @@ body {
 .dnd-dragging { opacity: 0.3; }
 .dnd-over     { outline: 1px solid #333333; border-radius: 12px; }
 
+/* ── Wizard floating pills (steps 1 & 7) ────────────────────────────────────── */
+/* A slow, subtle vertical drift. Per-pill duration/delay is set inline so the
+   cloud never syncs. Selected pills omit the animation (they lock in place). */
+.wander-pill {
+  animation-name: wander-drift;
+  animation-timing-function: ease-in-out;
+  animation-iteration-count: infinite;
+  will-change: transform;
+}
+@keyframes wander-drift {
+  0%   { transform: translateY(0); }
+  50%  { transform: translateY(-6px); }
+  100% { transform: translateY(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .wander-pill { animation: none !important; }
+}
+
 /* ── Leaflet popup overrides (dark) ─────────────────────────────────────────── */
 .leaflet-popup-content-wrapper {
   border-radius: 10px !important;

@@ -15,7 +15,7 @@ export function Header({ chatOpen, onToggleChat }: HeaderProps) {
   const [dropdownOpen, setDropdownOpen] = useState(false)
   const dropdownRef = useRef<HTMLDivElement>(null)
 
-  const { trips, activeTripId, setActiveTrip, deleteTrip } = useStore()
+  const { trips, activeTripId, setActiveTrip, deleteTrip, startWizard } = useStore()
   const activeTrip = activeTripId ? trips[activeTripId] : null
   const tripList = Object.values(trips).sort(
     (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
@@ -34,8 +34,7 @@ export function Header({ chatOpen, onToggleChat }: HeaderProps) {
 
   function handleNewTrip() {
     setDropdownOpen(false)
-    setActiveTrip(null)  // clear active trip so AI plans a fresh one, not a patch
-    document.dispatchEvent(new CustomEvent('wandr:focus-chat'))
+    startWizard()  // launch the full-screen new-trip wizard
   }
 
   function handleSelect(tripId: string) {

@@ -23,7 +23,7 @@ export function parseRequestedDays(text: string): number | null {
 }
 
 // ─── useChatSend ──────────────────────────────────────────────────────────────
-// Shared send logic used by both HeroLayout (empty state) and ChatPanel (sidebar).
+// Shared send logic used by both the new-trip Wizard and ChatPanel (sidebar).
 // Handles streaming, JSON parsing, auto-retry, and all trip-mutation actions.
 
 export function useChatSend() {
@@ -292,6 +292,10 @@ export function useChatSend() {
 
     const chatId               = activeTripId ?? '__new__'
     const snapshotActiveTripId = activeTripId
+    // Read preferences fresh from the store: the wizard sets draftPreferences and
+    // sends in the same tick, so the render-time `activePreferences` closure can
+    // be stale. For an edit the active trip's own preferences win.
+    const sendPreferences = activeTrip?.preferences ?? useStore.getState().draftPreferences
 
     const userMessage: ChatMessage = {
       id: crypto.randomUUID(), role: 'user', content: text, timestamp: new Date().toISOString(),
@@ -323,7 +327,7 @@ export function useChatSend() {
       if (creatingNewTrip) {
         // ── Phase 1: skeleton (fast structure, empty days) ──────────────────
         const skel = await streamOnce(
-          { messages: baseHistory, trip: null, agentSettings, preferences: activePreferences, intent: 'full', mode: 'skeleton' },
+          { messages: baseHistory, trip: null, agentSettings, preferences: sendPreferences, intent: 'full', mode: 'skeleton' },
           { onDelta: (t) => updateLastAssistantMessage(chatId, t), onDone: (resp) => applyTripResponse(resp, chatId, null) },
         )
         if (skel.serverError) {
@@ -351,7 +355,7 @@ export function useChatSend() {
             { role: 'user' as const, content: `That skeleton only had ${had} days, but the trip must be EXACTLY ${requestedDays} days. Regenerate the skeleton with ${requestedDays} correctly-dated days — each with an id, dayTitle, and EMPTY activities.` },
           ]
           await streamOnce(
-            { messages: fixMessages, trip: null, agentSettings, preferences: activePreferences, intent: 'full', mode: 'skeleton' },
+            { messages: fixMessages, trip: null, agentSettings, preferences: sendPreferences, intent: 'full', mode: 'skeleton' },
             {
               onDone: (resp) => {
                 const days = resp.trip?.days
@@ -386,7 +390,7 @@ export function useChatSend() {
       }
 
       // ── Single-shot path (edits / quick tier) ─────────────────────────────
-      const editBody = { messages: baseHistory, trip: activeTrip ?? null, agentSettings, preferences: activePreferences, intent }
+      const editBody = { messages: baseHistory, trip: activeTrip ?? null, agentSettings, preferences: sendPreferences, intent }
       const { jsonError, cutOff, serverError } = await streamOnce(editBody, {
         onDelta: (t) => updateLastAssistantMessage(chatId, t),
         onDone: (resp) => applyTripResponse(resp, chatId, snapshotActiveTripId),
