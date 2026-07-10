@@ -440,6 +440,7 @@ export function ItineraryView({ trip }: ItineraryViewProps) {
                       rates={rates}
                       showLocalPrices={showLocalPrices}
                       planning={isGenerating}
+                      incomplete={showResume}
                     />
                   </motion.div>
                 ))}

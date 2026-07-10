@@ -21,9 +21,10 @@ interface DayCardProps {
   rates?: RatesMap
   showLocalPrices?: boolean
   planning?: boolean
+  incomplete?: boolean
 }
 
-export function DayCard({ day, index, tripId, tripCurrency, isDraggingAny, rates = FALLBACK_RATES, showLocalPrices, planning }: DayCardProps) {
+export function DayCard({ day, index, tripId, tripCurrency, isDraggingAny, rates = FALLBACK_RATES, showLocalPrices, planning, incomplete }: DayCardProps) {
   const { activities, weather, dayNotes } = day
 
   const setDayTitle = useStore((s) => s.setDayTitle)
@@ -147,6 +148,10 @@ export function DayCard({ day, index, tripId, tripCurrency, isDraggingAny, rates
               <p className="text-[12px] text-[#555] flex items-center justify-center gap-2">
                 <span className="w-3 h-3 border border-[#333] border-t-[#777] rounded-full animate-spin" />
                 Planning this day…
+              </p>
+            ) : incomplete && !(isOver && isDraggingAny) ? (
+              <p className="text-[12px] text-[#f59e0b] flex items-center justify-center gap-1.5">
+                <span>⚠</span> This day didn&apos;t finish building — tap “Resume” above to retry.
               </p>
             ) : (
               <p className="text-[12px] text-[#333]">

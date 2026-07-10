@@ -6,6 +6,22 @@ import type { ChatMessage, AgentTripResponse } from '@/lib/types'
 import { preserveLockedActivities } from '@/lib/recalculate'
 import { showToast } from '@/components/ui/Toast'
 
+// Parse the requested trip length (in days) from a user message, for skeleton
+// validation. Returns null when it can't tell. Handles "10 days", "10-day",
+// "N nights" (≈ N+1 days is ambiguous, so we treat nights as days), and weeks.
+export function parseRequestedDays(text: string): number | null {
+  const t = text.toLowerCase()
+  const weekWord: Record<string, number> = { a: 1, one: 1, two: 2, three: 3, four: 4 }
+  const wk = t.match(/\b(\d{1,2}|a|one|two|three|four)\s*[-\s]?\s*weeks?\b/)
+  if (wk) {
+    const n = /\d/.test(wk[1]) ? parseInt(wk[1], 10) : (weekWord[wk[1]] ?? 1)
+    if (n > 0 && n <= 8) return n * 7
+  }
+  const d = t.match(/\b(\d{1,2})\s*[-\s]?\s*days?\b/)
+  if (d) { const n = parseInt(d[1], 10); if (n > 0 && n <= 40) return n }
+  return null
+}
+
 // ─── useChatSend ──────────────────────────────────────────────────────────────
 // Shared send logic used by both HeroLayout (empty state) and ChatPanel (sidebar).
 // Handles streaming, JSON parsing, auto-retry, and all trip-mutation actions.
@@ -70,10 +86,18 @@ export function useChatSend() {
       patch && snapshotActiveTripId
     ) {
       const { tripId: _tid, dayIds: _dids, ...tripFields } = patch
-      // Backstop: preserve locked activities in any days the agent replaced.
       if (tripFields.days) {
         const oldDays = useStore.getState().trips[snapshotActiveTripId]?.days ?? []
-        tripFields.days = preserveLockedActivities(oldDays, tripFields.days)
+        // Backstop: preserve locked activities in any days the agent replaced.
+        const patched = preserveLockedActivities(oldDays, tripFields.days)
+        // CRITICAL: MERGE the patched days by id into the existing days. A partial
+        // patch (a fill batch, or a single-day edit) contains ONLY the affected
+        // days — replacing the whole array would collapse the trip to that subset
+        // (e.g. a 10-day trip → 3 days after the first fill batch).
+        const patchedById = new Map(patched.map((d) => [d.id, d]))
+        const merged = oldDays.map((d) => patchedById.get(d.id) ?? d)
+        for (const nd of patched) if (!oldDays.some((d) => d.id === nd.id)) merged.push(nd)
+        tripFields.days = merged
       }
       updateTrip(snapshotActiveTripId, tripFields as Partial<import('@/lib/types').TripPlan>)
     }
@@ -177,50 +201,83 @@ export function useChatSend() {
     return { jsonError, cutOff, serverError }
   }, [])
 
-  // ── Fill empty days in 2–3 day batches (resumable) ──────────────────────────
-  // Repeatedly finds days with no activities and fills the next batch. Reading
-  // the fresh trip from the store each round makes this naturally resumable: it
-  // simply continues from wherever it was interrupted. Returns true when every
-  // day has activities.
-  const fillEmptyDays = useCallback(async (tripId: string, preamble: string): Promise<boolean> => {
-    const BATCH = 3
-    // Guard caps total rounds (≈ very large trips) to avoid any infinite loop.
-    for (let round = 0; round < 60; round++) {
-      const trip = useStore.getState().trips[tripId]
-      if (!trip) return false
-      const emptyIds = trip.days.filter((d) => !d.activities || d.activities.length === 0).map((d) => d.id)
-      if (emptyIds.length === 0) return true
+  // ── Fill empty days in 2–3 day batches (resilient + resumable) ──────────────
+  // Fills each batch of empty days. COMPLETION CONTRACT: a batch is only "done"
+  // when its days actually contain activities (not merely "the stream had no
+  // error"). BATCH RESILIENCE: a failed batch retries once (feeding the error
+  // back for self-correction); if it still fails, those days are marked and the
+  // loop CONTINUES with the next batch rather than abandoning the rest. Returns
+  // the real completion state so the caller can surface an incomplete plan.
+  const fillEmptyDays = useCallback(
+    async (tripId: string, preamble: string): Promise<{ complete: boolean; total: number; filled: number }> => {
+      const BATCH = 3
+      const failed = new Set<string>() // days that failed twice this run — skip so we make progress
 
-      const batch = emptyIds.slice(0, BATCH)
-      const filled = trip.days.length - emptyIds.length
-      updateLastAssistantMessage(tripId, `${preamble}\n\n_Adding activities… ${filled}/${trip.days.length} days_`, true)
+      for (let round = 0; round < 80; round++) {
+        const trip = useStore.getState().trips[tripId]
+        if (!trip) return { complete: false, total: 0, filled: 0 }
+        const total = trip.days.length
+        const emptyIds = trip.days
+          .filter((d) => (!d.activities || d.activities.length === 0) && !failed.has(d.id))
+          .map((d) => d.id)
+        if (emptyIds.length === 0) break // nothing left to attempt
 
-      // One automatic retry per batch (heartbeats make idle failures rare).
-      let ok = false
-      for (let attempt = 0; attempt < 2 && !ok; attempt++) {
-        const freshTrip = useStore.getState().trips[tripId]
-        try {
-          const r = await streamOnce(
-            {
-              messages: [{ role: 'user', content: `Generate the activities for these day IDs now: ${batch.join(', ')}.` }],
-              trip: freshTrip,
-              agentSettings,
-              preferences: activePreferences,
-              intent: 'full',
-              mode: 'fill',
-              fillDayIds: batch,
-            },
-            { onDone: (resp) => applyTripResponse(resp, tripId, tripId, false) },
-          )
-          if (!r.cutOff && !r.jsonError && !r.serverError) ok = true
-        } catch {
-          // network/idle error — retry once, else bail to resume affordance
+        const batch = emptyIds.slice(0, BATCH)
+        const doneCount = trip.days.filter((d) => d.activities && d.activities.length > 0).length
+        // Progress: always visibly partial.
+        updateLastAssistantMessage(
+          tripId,
+          `${preamble}\n\n_Building days ${doneCount + 1}–${Math.min(doneCount + batch.length, total)} of ${total}…_`,
+          true,
+        )
+
+        let batchOk = false
+        let lastError: string | null = null
+        for (let attempt = 0; attempt < 2 && !batchOk; attempt++) {
+          const freshTrip = useStore.getState().trips[tripId]
+          const fillMessages: Array<{ role: 'user' | 'assistant'; content: string }> = [
+            { role: 'user', content: `Generate the activities for these day IDs now: ${batch.join(', ')}.` },
+          ]
+          // Self-correction: on retry, tell the model exactly what went wrong.
+          if (attempt > 0 && lastError) {
+            fillMessages.push({ role: 'assistant', content: '(previous attempt was incomplete)' })
+            fillMessages.push({
+              role: 'user',
+              content: `Your previous response ${lastError}. Resend a COMPLETE replace_day_activities patch containing ONLY day IDs ${batch.join(', ')}, each with a full "activities" array. Include the ---WANDR-JSON--- marker on its own line and valid, untruncated JSON.`,
+            })
+          }
+          try {
+            const r = await streamOnce(
+              { messages: fillMessages, trip: freshTrip, agentSettings, preferences: activePreferences, intent: 'full', mode: 'fill', fillDayIds: batch },
+              { onDone: (resp) => applyTripResponse(resp, tripId, tripId, false) },
+            )
+            if (r.serverError) { lastError = 'errored on the server'; continue }
+            if (r.cutOff) { lastError = 'was cut off before finishing'; continue }
+            if (r.jsonError) { lastError = 'contained invalid JSON'; continue }
+            // COMPLETION CHECK: did the batch days actually receive activities?
+            const after = useStore.getState().trips[tripId]
+            const stillEmpty = batch.filter((id) => {
+              const d = after?.days.find((x) => x.id === id)
+              return !d || !d.activities || d.activities.length === 0
+            })
+            if (stillEmpty.length === 0) batchOk = true
+            else lastError = `did not include activities for day(s) ${stillEmpty.join(', ')}`
+          } catch {
+            lastError = 'failed to connect'
+          }
         }
+        // Failed twice → mark these days so we don't retry them forever, and
+        // CONTINUE to the next batch (do NOT abandon the remaining days).
+        if (!batchOk) batch.forEach((id) => failed.add(id))
       }
-      if (!ok) return false
-    }
-    return false
-  }, [streamOnce, applyTripResponse, updateLastAssistantMessage, agentSettings, activePreferences])
+
+      const finalTrip = useStore.getState().trips[tripId]
+      const total = finalTrip?.days.length ?? 0
+      const emptyRemaining = finalTrip ? finalTrip.days.filter((d) => !d.activities || d.activities.length === 0).length : 0
+      return { complete: emptyRemaining === 0, total, filled: total - emptyRemaining }
+    },
+    [streamOnce, applyTripResponse, updateLastAssistantMessage, agentSettings, activePreferences],
+  )
 
   // ── Core send function ───────────────────────────────────────────────────────
   // `intent` selects the model tier on the server: 'full' (default) uses Sonnet,
@@ -280,21 +337,50 @@ export function useChatSend() {
         }
 
         const newTripId = useStore.getState().activeTripId
-        const newTrip   = newTripId ? useStore.getState().trips[newTripId] : null
+        let newTrip     = newTripId ? useStore.getState().trips[newTripId] : null
         // Chat-only reply (vague request) or no days → nothing to fill.
         if (!newTripId || !newTrip || newTrip.days.length === 0) return
+
+        // ── Skeleton validation: day count must match the requested duration ──
+        const requestedDays = parseRequestedDays(text)
+        if (requestedDays && newTrip.days.length < requestedDays) {
+          const had = newTrip.days.length
+          const fixMessages = [
+            ...baseHistory,
+            { role: 'assistant' as const, content: `(skeleton draft had ${had} days)` },
+            { role: 'user' as const, content: `That skeleton only had ${had} days, but the trip must be EXACTLY ${requestedDays} days. Regenerate the skeleton with ${requestedDays} correctly-dated days — each with an id, dayTitle, and EMPTY activities.` },
+          ]
+          await streamOnce(
+            { messages: fixMessages, trip: null, agentSettings, preferences: activePreferences, intent: 'full', mode: 'skeleton' },
+            {
+              onDone: (resp) => {
+                const days = resp.trip?.days
+                // Replace days on the SAME trip (don't create a duplicate).
+                if (days && days.length > had) {
+                  updateTrip(newTripId, { days: days.map((d) => ({ ...d, activities: [] })) })
+                }
+              },
+            },
+          ).catch(() => {})
+          newTrip = useStore.getState().trips[newTripId] ?? newTrip
+        }
 
         const msgs = useStore.getState().chatHistory[newTripId] ?? []
         const preamble = [...msgs].reverse().find((m) => m.role === 'assistant')?.content
           || 'Here\'s your trip — filling in each day…'
 
         // ── Phase 2: fill days in batches ───────────────────────────────────
-        const ok = await fillEmptyDays(newTripId, preamble)
-        if (ok) {
+        const result = await fillEmptyDays(newTripId, preamble)
+        if (result.complete) {
           updateLastAssistantMessage(newTripId, preamble, false)
         } else {
-          updateLastAssistantMessage(newTripId, `${preamble}\n\n_Some days still need activities — tap “Resume” on the itinerary to finish._`, false)
-          showToast({ message: 'Some days didn\'t finish — tap Resume to complete them.', type: 'warning' })
+          const missing = result.total - result.filled
+          updateLastAssistantMessage(
+            newTripId,
+            `${preamble}\n\n_⚠ ${missing} of ${result.total} days didn't finish building. Tap “Resume” on the itinerary to retry them._`,
+            false,
+          )
+          showToast({ message: `${missing} day${missing === 1 ? '' : 's'} didn't finish — tap Resume to retry`, type: 'warning' })
         }
         return
       }
@@ -357,13 +443,14 @@ export function useChatSend() {
       const msgs = useStore.getState().chatHistory[tripId] ?? []
       const raw = [...msgs].reverse().find((m) => m.role === 'assistant')?.content || 'Finishing your itinerary…'
       const preamble = raw.split('\n\n_')[0] // strip any prior progress/resume note
-      const ok = await fillEmptyDays(tripId, preamble)
-      updateLastAssistantMessage(
-        tripId,
-        ok ? preamble : `${preamble}\n\n_Some days still need activities — tap “Resume” to finish._`,
-        false,
-      )
-      if (!ok) showToast({ message: 'Some days still didn\'t finish — tap Resume again.', type: 'warning' })
+      const result = await fillEmptyDays(tripId, preamble)
+      if (result.complete) {
+        updateLastAssistantMessage(tripId, preamble, false)
+      } else {
+        const missing = result.total - result.filled
+        updateLastAssistantMessage(tripId, `${preamble}\n\n_⚠ ${missing} of ${result.total} days still need activities — tap “Resume” to retry._`, false)
+        showToast({ message: `${missing} day${missing === 1 ? '' : 's'} still didn't finish — tap Resume again`, type: 'warning' })
+      }
     } finally {
       setIsGenerating(false)
     }
