@@ -1,7 +1,11 @@
 'use client'
 
-import { useState, useRef, useEffect } from 'react'
+import { useState } from 'react'
 import { Check, X } from 'lucide-react'
+import {
+  useFloating, autoUpdate, offset, flip, shift, size,
+  useClick, useDismiss, useRole, useInteractions, FloatingPortal,
+} from '@floating-ui/react'
 import { useStore } from '@/lib/store'
 import type { TripPlan, TripAssumption, PartyType, ExactBudget } from '@/lib/types'
 import { cn, getBudgetLabel, getPaceLabel, getTripStyleLabel } from '@/lib/utils'
@@ -19,13 +23,21 @@ interface Props {
 
 export function AssumptionChips({ trip }: Props) {
   const assumptions = trip.assumptions
+  // Track which chip's editor is open — enforces "only one open at a time".
+  const [openField, setOpenField] = useState<string | null>(null)
   if (!assumptions?.length) return null
 
   return (
     <div className="flex items-center gap-1.5 flex-wrap">
       <span className="text-[10px] text-[#333] font-medium shrink-0 mr-0.5">Planned for:</span>
       {assumptions.map((a) => (
-        <AssumptionChip key={a.field} assumption={a} trip={trip} />
+        <AssumptionChip
+          key={a.field}
+          assumption={a}
+          trip={trip}
+          open={openField === a.field}
+          onOpenChange={(o) => setOpenField(o ? a.field : null)}
+        />
       ))}
     </div>
   )
@@ -33,65 +45,79 @@ export function AssumptionChips({ trip }: Props) {
 
 // ─── AssumptionChip ───────────────────────────────────────────────────────────
 
-function AssumptionChip({ assumption, trip }: { assumption: TripAssumption; trip: TripPlan }) {
-  const [editorOpen, setEditorOpen] = useState(false)
-  const containerRef = useRef<HTMLDivElement>(null)
-
-  // Close on outside click
-  useEffect(() => {
-    if (!editorOpen) return
-    function handler(e: MouseEvent) {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
-        setEditorOpen(false)
-      }
-    }
-    document.addEventListener('mousedown', handler)
-    return () => document.removeEventListener('mousedown', handler)
-  }, [editorOpen])
-
-  // Close on Escape
-  useEffect(() => {
-    if (!editorOpen) return
-    function handler(e: KeyboardEvent) {
-      if (e.key === 'Escape') setEditorOpen(false)
-    }
-    document.addEventListener('keydown', handler)
-    return () => document.removeEventListener('keydown', handler)
-  }, [editorOpen])
+function AssumptionChip({
+  assumption, trip, open, onOpenChange,
+}: {
+  assumption: TripAssumption
+  trip: TripPlan
+  open: boolean
+  onOpenChange: (open: boolean) => void
+}) {
+  // Floating UI handles anchoring + collision (flip above when no room below,
+  // shift to stay in the viewport) and portals the popover to the document root.
+  const { refs, floatingStyles, context } = useFloating({
+    open,
+    onOpenChange,
+    placement: 'bottom-start',
+    middleware: [
+      offset(8),
+      flip({ padding: 8, fallbackAxisSideDirection: 'end' }),
+      shift({ padding: 8 }),
+      size({
+        padding: 8,
+        apply({ availableHeight, elements }) {
+          // Cap height on short viewports; the popover scrolls internally.
+          elements.floating.style.maxHeight = `${Math.max(220, availableHeight)}px`
+        },
+      }),
+    ],
+    whileElementsMounted: autoUpdate,
+  })
+  const click = useClick(context)
+  const dismiss = useDismiss(context, { outsidePress: true, escapeKey: true })
+  const role = useRole(context, { role: 'dialog' })
+  const { getReferenceProps, getFloatingProps } = useInteractions([click, dismiss, role])
 
   const isInferred = assumption.source === 'inferred'
 
   return (
-    <div ref={containerRef} className="relative">
+    <>
       <button
-        onClick={() => setEditorOpen((v) => !v)}
+        ref={refs.setReference}
+        {...getReferenceProps()}
+        title={assumption.value}
         className={cn(
-          'flex items-center gap-1 px-2.5 py-1 rounded-full border text-[11px] transition-colors',
-          editorOpen
+          'flex items-center gap-1 px-2.5 py-1 rounded-full border text-[11px] transition-colors max-w-[360px]',
+          open
             ? 'bg-white text-black border-white'
             : 'bg-[#111111] border-[#1f1f1f] text-[#888] hover:border-[#333] hover:text-[#f0f0f0]',
         )}
       >
-        <span className="text-[#444] mr-0.5">{assumption.label}:</span>
+        <span className={cn('mr-0.5 shrink-0', open ? 'text-[#666]' : 'text-[#444]')}>{assumption.label}:</span>
+        {/* min-w-0 lets the value truncate with an ellipsis inside the flex row */}
         <span
           className={cn(
-            // Dotted underline for inferred assumptions — makes AI guesses visually distinct
-            isInferred && 'underline decoration-dotted decoration-[#444] underline-offset-2'
+            'truncate min-w-0',
+            isInferred && 'underline decoration-dotted decoration-[#444] underline-offset-2',
           )}
         >
           {assumption.value}
         </span>
       </button>
 
-      {/* Inline editor */}
-      {editorOpen && (
-        <ChipEditor
-          assumption={assumption}
-          trip={trip}
-          onClose={() => setEditorOpen(false)}
-        />
+      {open && (
+        <FloatingPortal>
+          <div
+            ref={refs.setFloating}
+            style={floatingStyles}
+            {...getFloatingProps()}
+            className="z-[100] w-[300px] max-w-[calc(100vw-16px)] overflow-y-auto rounded-xl border border-[#2a2a2a] bg-[#111111] p-3 shadow-2xl shadow-black/60"
+          >
+            <ChipEditor assumption={assumption} trip={trip} onClose={() => onOpenChange(false)} />
+          </div>
+        </FloatingPortal>
       )}
-    </div>
+    </>
   )
 }
 
@@ -147,11 +173,12 @@ function ChipEditor({
   })()
 
   return (
-    <div className={cn(
-      'absolute top-full mt-2 left-0',
-      'w-[220px] rounded-xl border border-[#2a2a2a] bg-[#111111]',
-      'p-3 shadow-2xl shadow-black/60 z-50',
-    )}>
+    <div>
+      {/* Full current value (chips truncate; the editor shows it in full) */}
+      <div className="mb-2.5 pb-2.5 border-b border-[#1f1f1f]">
+        <p className="text-[9px] font-semibold text-[#444] uppercase tracking-wide">{assumption.label}</p>
+        <p className="text-[11px] text-[#aaa] leading-snug mt-0.5">{assumption.value}</p>
+      </div>
       {editorContent}
     </div>
   )

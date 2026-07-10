@@ -95,6 +95,11 @@ Do NOT include any text after the JSON object. Do NOT wrap the JSON in markdown 
 Include an "assumptions" array listing the key parameters you used when generating the plan.
 Each entry: { "field": string, "label": string, "value": string, "source": "message"|"preference"|"inferred" }
 
+CRITICAL — the "value" MUST be a SHORT summary (max ~6 words), suitable for a small
+chip. It is a label, not an explanation. Good: "Mid-range, ~SGD 150 pp/day". Bad:
+"SGD ~180-230/night hotel + SGD ~40-60/day food & attractions per person". Put all
+detail in the itinerary and your conversational message — NEVER in the chip value.
+
 source meanings:
 - "message"    = the user stated this explicitly in their message
 - "preference" = you took it from the saved preferences block above
@@ -102,7 +107,7 @@ source meanings:
 
 Cover at minimum (where data exists):
 - field "partyType"  → label "Party"  → e.g. "Couple", "Solo traveller", "Family of 4"
-- field "budget"     → label "Budget" → e.g. "Mid-range", "SGD 4,500 total", "Budget"
+- field "budget"     → label "Budget" → e.g. "Mid-range", "~SGD 150 pp/day", "SGD 4,500 total"
 - field "pace"       → label "Pace"   → e.g. "Balanced", "Relaxed", "Packed"
 - field "tripStyle"  → label "Style"  → e.g. "City-focused", "Nature & city mix", "Mostly nature"
 - field "dates"      → label "Dates"  → e.g. "Dec 2026", "Jun 15–22, 2025", "Not specified"
