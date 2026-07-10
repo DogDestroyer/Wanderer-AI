@@ -4,7 +4,7 @@
 // (fed to draftPreferences) plus a single natural-language message (fed to the
 // same sendMessage the chat uses). No parallel trip state.
 
-import type { PartyType, TripPreferences } from './types'
+import type { PartyType, TripPreferences, BuildScaffold, TripAssumption } from './types'
 import { getBudgetLabel } from './utils'
 
 export const WIZARD_STEPS = [
@@ -170,6 +170,46 @@ export function composeWizardMessage(draft: WizardDraft): string {
   if (notes) message += `\n\nAdditional notes: ${notes}`
 
   return message
+}
+
+// ─── Instant build scaffold (no AI) ───────────────────────────────────────────
+// Everything the trip view can render immediately from the wizard answers, plus
+// synthesized user-sourced "Planned for" chips. The real AI title/assumptions
+// replace these when the skeleton lands.
+export function scaffoldFromDraft(draft: WizardDraft): BuildScaffold {
+  const cityNames = draft.cities.map((c) => c.name)
+  const countries = allCountries(draft)
+  const dest = cityNames.length ? cityNames : countries
+  const destinationName = dest.join(', ')
+  const dayCount = draft.days && !draft.skipped.includes('days') ? draft.days : (draft.days ?? 7)
+
+  const assumptions: TripAssumption[] = []
+  if (draft.partySize && !draft.skipped.includes('people')) {
+    const type = draft.partyType ?? suggestedPartyType(draft.partySize)
+    assumptions.push({ field: 'partyType', label: 'Party', value: type.charAt(0).toUpperCase() + type.slice(1), source: 'message' })
+  }
+  const budgetValue = draft.exactAmount && draft.exactAmount > 0
+    ? `${draft.currency} ${draft.exactAmount.toLocaleString('en')}${draft.perPerson ? ' p/p' : ''}`
+    : getBudgetLabel(draft.budgetLevel)
+  assumptions.push({ field: 'budget', label: 'Budget', value: budgetValue, source: draft.skipped.includes('budget') ? 'inferred' : 'message' })
+  if (draft.startDate) {
+    const d = new Date(draft.startDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
+    assumptions.push({ field: 'dates', label: 'Dates', value: d, source: 'message' })
+  }
+
+  return {
+    title: dest.length ? (dest.length === 1 ? dest[0] : listPhrase(dest)) : 'Your trip',
+    destinationName,
+    startDate: draft.startDate,
+    endDate: draft.endDate,
+    dayCount,
+    budgetCap: draft.exactAmount && draft.exactAmount > 0 ? draft.exactAmount : 0,
+    currency: draft.currency,
+    budgetLabel: getBudgetLabel(draft.budgetLevel),
+    paceLabel: 'Balanced',
+    interests: [...draft.interests, ...draft.customInterests],
+    assumptions,
+  }
 }
 
 // "a", "a and b", "a, b and c"

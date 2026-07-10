@@ -206,6 +206,25 @@ export interface TripAssumption {
   source: 'message' | 'preference' | 'inferred'
 }
 
+// ─── Live build (generation-experience) scaffold ──────────────────────────────
+// Everything the UI can show INSTANTLY from the wizard answers (no AI), so the
+// trip view renders within ~1s of Build and then constructs itself as the real
+// chunked-generation events land.
+
+export interface BuildScaffold {
+  title: string
+  destinationName: string
+  startDate: string | null
+  endDate: string | null
+  dayCount: number
+  budgetCap: number
+  currency: string
+  budgetLabel: string
+  paceLabel: string
+  interests: string[]
+  assumptions: TripAssumption[]
+}
+
 // ─── Checklist (per-trip, no AI) ──────────────────────────────────────────────
 
 export type ChecklistSection = 'Before you go' | 'Packing' | 'Documents' | 'General'

@@ -13,7 +13,7 @@ import { ChatInput, type ChatInputHandle } from './ChatInput'
 
 // ─── ChatPanel ─────────────────────────────────────────────────────────────────
 
-export function ChatPanel() {
+export function ChatPanel({ locked = false }: { locked?: boolean }) {
   const [input, setInput] = useState('')
   const [isEnhancing, setIsEnhancing] = useState(false)
   const [isFocused, setIsFocused] = useState(false)
@@ -243,22 +243,31 @@ export function ChatPanel() {
       </AnimatePresence>
 
       {/* ── Input area ───────────────────────────────────────────────────────── */}
-      <div className="px-3 pb-3 pt-2 border-t border-[#1f1f1f] flex-shrink-0">
-        <ChatInput
-          ref={chatInputRef}
-          value={input}
-          onChange={setInput}
-          onSubmit={handleSend}
-          onEnhance={handleEnhance}
-          isGenerating={isGenerating}
-          isEnhancing={isEnhancing}
-          placeholder={activeTrip ? 'Ask to change something…' : 'Describe your dream trip…'}
-          onFocus={() => setIsFocused(true)}
-          onBlur={() => setIsFocused(false)}
-          variant="panel"
-        />
+      <div
+        className="px-3 pb-3 pt-2 border-t border-[#1f1f1f] flex-shrink-0"
+        title={locked ? 'Available once your trip is built' : undefined}
+        data-testid="chat-input-area"
+        data-locked={locked ? 'true' : 'false'}
+      >
+        <div className={cn(locked && 'opacity-50 pointer-events-none select-none')} aria-disabled={locked}>
+          <ChatInput
+            ref={chatInputRef}
+            value={input}
+            onChange={setInput}
+            onSubmit={handleSend}
+            onEnhance={handleEnhance}
+            isGenerating={isGenerating || locked}
+            isEnhancing={isEnhancing}
+            placeholder={activeTrip ? 'Ask to change something…' : 'Describe your dream trip…'}
+            onFocus={() => setIsFocused(true)}
+            onBlur={() => setIsFocused(false)}
+            variant="panel"
+          />
+        </div>
         <p className="text-[10px] text-[#333] mt-1.5 text-center">
-          Enter to send · Shift+Enter for new line · <span className="text-[#444]">✦ wand to enhance</span>
+          {locked
+            ? 'Chat unlocks once your trip is built'
+            : <>Enter to send · Shift+Enter for new line · <span className="text-[#444]">✦ wand to enhance</span></>}
         </p>
       </div>
     </div>

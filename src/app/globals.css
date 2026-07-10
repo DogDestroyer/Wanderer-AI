@@ -76,6 +76,32 @@ body {
   .wander-pill { animation: none !important; }
 }
 
+/* ── Live-build construction ─────────────────────────────────────────────────
+   Shimmer placeholder for not-yet-populated content. Transform/opacity only. */
+.build-shimmer {
+  position: relative;
+  overflow: hidden;
+  background: #131313;
+}
+.build-shimmer::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.045), transparent);
+  animation: build-sweep 1.4s ease-in-out infinite;
+}
+@keyframes build-sweep { 100% { transform: translateX(100%); } }
+
+/* Soft pulse for the live status dot */
+.build-pulse { animation: build-pulse 1.6s ease-in-out infinite; }
+@keyframes build-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .build-shimmer::after, .build-pulse { animation: none !important; }
+  .build-shimmer::after { display: none; }
+}
+
 /* Subtle pop when a stepper value changes */
 .wizard-pop { animation: wizard-pop 0.18s ease-out; }
 @keyframes wizard-pop {

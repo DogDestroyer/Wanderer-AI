@@ -2,7 +2,7 @@
 
 import { create } from 'zustand'
 import { persist, createJSONStorage } from 'zustand/middleware'
-import type { TripPlan, Day, Activity, ChatMessage, AgentSuggestion, WeatherForecast, AgentSettings, TripPreferences, TripLiveData, ChecklistItem, ChecklistSection, Reservation } from './types'
+import type { TripPlan, Day, Activity, ChatMessage, AgentSuggestion, WeatherForecast, AgentSettings, TripPreferences, TripLiveData, ChecklistItem, ChecklistSection, Reservation, BuildScaffold } from './types'
 import { convertAmount, FALLBACK_RATES, type RatesMap } from './currency'
 import { DEFAULT_AGENT_SETTINGS, DEFAULT_PREFERENCES } from './types'
 import { recalculateDay } from './recalculate'
@@ -20,6 +20,21 @@ export interface WizardState {
 }
 
 const INITIAL_WIZARD: WizardState = { active: false, step: 1, draft: EMPTY_WIZARD_DRAFT, returnTripId: null }
+
+// ─── Live build session (generation experience) ───────────────────────────────
+// Drives the "watch it construct" trip view. Every field is updated from REAL
+// pipeline milestones (see the observer layer in useChatSend) — never simulated.
+export type BuildPhase = 'scaffold' | 'building' | 'complete' | 'interrupted'
+export interface BuildState {
+  active: boolean
+  phase: BuildPhase
+  scaffold: BuildScaffold | null  // phase-1 shell data (before the skeleton lands)
+  statusLine: string
+  startedAt: number               // epoch ms, for the elapsed indicator
+  lastEventAt: number             // bumped by heartbeats/batches — proves liveness
+  failedDayIds: string[]          // days a batch couldn't build (show retry in place)
+}
+const INITIAL_BUILD: BuildState = { active: false, phase: 'scaffold', scaffold: null, statusLine: '', startedAt: 0, lastEventAt: 0, failedDayIds: [] }
 
 // ─── State shape ──────────────────────────────────────────────────────────────
 
@@ -54,6 +69,13 @@ interface AppState {
   toggleWizardSkip: (step: WizardStepId, skipped: boolean) => void
   cancelWizard: () => void   // back out — restore the previous active trip
   closeWizard: () => void    // finished (a trip now exists) — just dismiss
+
+  // ── Live build session ──
+  build: BuildState
+  startBuild: (scaffold: BuildScaffold) => void
+  updateBuild: (patch: Partial<BuildState>) => void
+  bumpBuild: () => void      // heartbeat: prove liveness without other changes
+  endBuild: () => void
 
   // ── Trip CRUD ──
   createTrip: (trip: TripPlan) => void
@@ -235,6 +257,21 @@ export const useStore = create<AppState>()(
         })),
 
       closeWizard: () => set(() => ({ wizard: { ...INITIAL_WIZARD } })),
+
+      // ── Live build session ────────────────────────────────────────────────────
+
+      build: INITIAL_BUILD,
+
+      startBuild: (scaffold) => {
+        const t = Date.now()
+        set({ build: { active: true, phase: 'scaffold', scaffold, statusLine: 'Sketching your itinerary…', startedAt: t, lastEventAt: t, failedDayIds: [] } })
+      },
+
+      updateBuild: (patch) => set((s) => (s.build.active ? { build: { ...s.build, ...patch, lastEventAt: Date.now() } } : s)),
+
+      bumpBuild: () => set((s) => (s.build.active ? { build: { ...s.build, lastEventAt: Date.now() } } : s)),
+
+      endBuild: () => set(() => ({ build: { ...INITIAL_BUILD } })),
 
       // ── Trip CRUD ──────────────────────────────────────────────────────────
 

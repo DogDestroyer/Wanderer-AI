@@ -7,7 +7,7 @@ import { useStore } from '@/lib/store'
 import { useChatSend } from '@/hooks/useChatSend'
 import { cn } from '@/lib/utils'
 import {
-  WIZARD_STEPS, WIZARD_TOTAL, composeWizardMessage, wizardToPreferences, isStepAnswered,
+  WIZARD_STEPS, WIZARD_TOTAL, composeWizardMessage, wizardToPreferences, isStepAnswered, scaffoldFromDraft,
   type WizardStepId,
 } from '@/lib/wizard'
 import { StepCountries } from './steps/StepCountries'
@@ -18,7 +18,6 @@ import { StepPeople } from './steps/StepPeople'
 import { StepBudget } from './steps/StepBudget'
 import { StepInterests } from './steps/StepInterests'
 import { StepNotes } from './steps/StepNotes'
-import { StepGenerating } from './steps/StepGenerating'
 import type { StepProps } from './stepTypes'
 
 const EASE = [0.16, 1, 0.3, 1] as [number, number, number, number]
@@ -43,8 +42,10 @@ export function Wizard() {
   const updateWizardDraft = useStore((s) => s.updateWizardDraft)
   const toggleWizardSkip  = useStore((s) => s.toggleWizardSkip)
   const cancelWizard      = useStore((s) => s.cancelWizard)
+  const closeWizard       = useStore((s) => s.closeWizard)
   const setActiveTrip     = useStore((s) => s.setActiveTrip)
   const clearChatThread   = useStore((s) => s.clearChatThread)
+  const startBuild        = useStore((s) => s.startBuild)
   const updateDraftPreferences = useStore((s) => s.updateDraftPreferences)
   const { sendMessage } = useChatSend()
 
@@ -55,25 +56,24 @@ export function Wizard() {
   const hideFooter = isGenerateStep || isNotesStep
 
   // ── Kick off generation (once, from the notes step) ─────────────────────────
+  // Starts a LIVE BUILD: hands off directly into the trip view, which constructs
+  // itself from the scaffold + real pipeline events (no separate loading screen).
   const beginGeneration = useCallback(() => {
-    // Map answers into the existing preference object.
-    updateDraftPreferences(wizardToPreferences(useStore.getState().wizard.draft))
+    const draft = useStore.getState().wizard.draft
+    updateDraftPreferences(wizardToPreferences(draft))
     // Guarantee a NEW trip (not an edit) and a clean pre-trip chat thread.
     setActiveTrip(null)
     clearChatThread('__new__')
-    const message = composeWizardMessage(useStore.getState().wizard.draft)
-    // Fire-and-forget: StepGenerating watches the store for progress/completion.
+    const message = composeWizardMessage(draft)
+    startBuild(scaffoldFromDraft(draft)) // instant scaffold before any AI
+    closeWizard()                        // leave the wizard → trip view takes over
     void sendMessage(message)
-  }, [updateDraftPreferences, setActiveTrip, clearChatThread, sendMessage])
+  }, [updateDraftPreferences, setActiveTrip, clearChatThread, startBuild, closeWizard, sendMessage])
 
   // ── Navigation ──────────────────────────────────────────────────────────────
   const advance = useCallback(() => {
     if (isGenerateStep) return
-    if (stepId === 'notes') {
-      setWizardStep(WIZARD_TOTAL) // → generate
-      beginGeneration()
-      return
-    }
+    if (stepId === 'notes') { beginGeneration(); return }
     setWizardStep(step + 1)
   }, [isGenerateStep, stepId, step, setWizardStep, beginGeneration])
 
@@ -112,7 +112,7 @@ export function Wizard() {
       case 'budget':    return <StepBudget {...stepProps} />
       case 'interests': return <StepInterests {...stepProps} />
       case 'notes':     return <StepNotes {...stepProps} />
-      case 'generate':  return <StepGenerating onRetry={beginGeneration} onEditBack={() => setWizardStep(WIZARD_TOTAL - 1)} />
+      case 'generate':  return null // never rendered — Build hands off to the live trip view
     }
   })()
 

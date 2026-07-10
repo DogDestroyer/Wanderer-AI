@@ -11,6 +11,7 @@ import { Header } from './Header'
 import { ChatPanel } from '@/components/chat/ChatPanel'
 import { Wizard } from '@/components/wizard/Wizard'
 import { ItineraryView } from '@/components/itinerary/ItineraryView'
+import { ConstructionScaffold } from '@/components/itinerary/ConstructionScaffold'
 
 // ─── AppShell ─────────────────────────────────────────────────────────────────
 // Controls the app's top-level modes:
@@ -29,7 +30,9 @@ export function AppShell() {
   const chatHistory  = useStore((s) => s.chatHistory)
   const wizardActive = useStore((s) => s.wizard.active)
   const startWizard  = useStore((s) => s.startWizard)
+  const build        = useStore((s) => s.build)
   const activeTrip   = activeTripId ? trips[activeTripId] : null
+  const buildLocked  = build.active && build.phase !== 'complete'
 
   // chatOpen: sidebar visibility in normal mode
   const [chatOpen, setChatOpen] = useState(true)
@@ -39,9 +42,9 @@ export function AppShell() {
   const newChatMsgs = chatHistory['__new__'] ?? []
   const hasPendingNewChat = newChatMsgs.length > 0
 
-  // A genuinely fresh start — no trip, nothing generating or interrupted. This is
-  // where the wizard belongs, so we auto-open it (the wizard IS the new-trip flow).
-  const isFreshStart = hasHydrated && !activeTripId && !isGenerating && !hasPendingNewChat
+  // A genuinely fresh start — no trip, nothing generating/building or interrupted.
+  // This is where the wizard belongs, so we auto-open it.
+  const isFreshStart = hasHydrated && !activeTripId && !isGenerating && !hasPendingNewChat && !build.active
 
   // Weather hook (no-op when trip is null)
   useWeather(activeTrip)
@@ -95,7 +98,12 @@ export function AppShell() {
         {/* Main itinerary area */}
         <main className="flex-1 overflow-y-auto min-h-0 min-w-0">
           {activeTrip ? (
-            <ItineraryView trip={activeTrip} />
+            /* Same component throughout the build → completion (DOM parity, no
+               swap). `building` drives the construction; null once settled. */
+            <ItineraryView trip={activeTrip} building={build.active ? build : null} />
+          ) : build.active ? (
+            /* Phase 1: instant scaffold from the wizard answers (no trip yet). */
+            <ConstructionScaffold build={build} />
           ) : isGenerating ? (
             <GeneratingSkeleton />
           ) : hasPendingNewChat ? (
@@ -109,11 +117,11 @@ export function AppShell() {
           )}
         </main>
 
-        {/* Chat sidebar — also shown during the interrupted state so its retry
-            handler (a wandr:send-message listener) is mounted. */}
-        {(activeTrip || hasPendingNewChat) && chatOpen && (
+        {/* Chat sidebar — shown during the build (disabled until complete) and the
+            interrupted state (so its retry listener is mounted). */}
+        {(activeTrip || hasPendingNewChat || build.active) && chatOpen && (
           <div className="flex-shrink-0 w-full md:w-[380px] border-l border-[#1f1f1f] flex flex-col overflow-hidden">
-            <ChatPanel />
+            <ChatPanel locked={buildLocked} />
           </div>
         )}
       </motion.div>

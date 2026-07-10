@@ -40,6 +40,10 @@ export function useChatSend() {
   const createTrip               = useStore((s) => s.createTrip)
   const updateTrip               = useStore((s) => s.updateTrip)
   const setUserDefaults          = useStore((s) => s.setUserDefaults)
+  // Live-build observer actions (no-op unless a build session is active).
+  const updateBuild              = useStore((s) => s.updateBuild)
+  const bumpBuild                = useStore((s) => s.bumpBuild)
+  const endBuild                 = useStore((s) => s.endBuild)
 
   const activeTrip  = activeTripId ? trips[activeTripId] : null
   const chatKey     = activeTripId ?? '__new__'
@@ -109,7 +113,7 @@ export function useChatSend() {
   // single-shot edits, the skeleton request, and each fill batch.
   const streamOnce = useCallback(async (
     body: Record<string, unknown>,
-    handlers: { onDelta?: (full: string) => void; onDone?: (resp: AgentTripResponse) => void },
+    handlers: { onDelta?: (full: string) => void; onDone?: (resp: AgentTripResponse) => void; onPing?: () => void },
   ): Promise<{ jsonError: { naturalMessage: string } | null; cutOff: boolean; serverError: string | null }> => {
     const res = await fetch('/api/chat', {
       method: 'POST',
@@ -184,7 +188,9 @@ export function useChatSend() {
           streamedText += payload.text
           handlers.onDelta?.(streamedText)
         } else if (payload.type === 'ping') {
-          // Keepalive only — its arrival resets the idle watchdog above.
+          // Keepalive only — its arrival resets the idle watchdog above and
+          // proves liveness to the live-build UI (honest heartbeat).
+          handlers.onPing?.()
         } else if (payload.type === 'done') {
           receivedTerminal = true
           handlers.onDone?.(payload.response)
@@ -224,12 +230,11 @@ export function useChatSend() {
 
         const batch = emptyIds.slice(0, BATCH)
         const doneCount = trip.days.filter((d) => d.activities && d.activities.length > 0).length
+        const rangeLabel = `days ${doneCount + 1}–${Math.min(doneCount + batch.length, total)} of ${total}`
         // Progress: always visibly partial.
-        updateLastAssistantMessage(
-          tripId,
-          `${preamble}\n\n_Building days ${doneCount + 1}–${Math.min(doneCount + batch.length, total)} of ${total}…_`,
-          true,
-        )
+        updateLastAssistantMessage(tripId, `${preamble}\n\n_Building ${rangeLabel}…_`, true)
+        // Live-build status line (real pipeline state).
+        updateBuild({ statusLine: `Planning ${rangeLabel}…` })
 
         let batchOk = false
         let lastError: string | null = null
@@ -249,7 +254,7 @@ export function useChatSend() {
           try {
             const r = await streamOnce(
               { messages: fillMessages, trip: freshTrip, agentSettings, preferences: activePreferences, intent: 'full', mode: 'fill', fillDayIds: batch },
-              { onDone: (resp) => applyTripResponse(resp, tripId, tripId, false) },
+              { onDone: (resp) => applyTripResponse(resp, tripId, tripId, false), onPing: bumpBuild },
             )
             if (r.serverError) { lastError = 'errored on the server'; continue }
             if (r.cutOff) { lastError = 'was cut off before finishing'; continue }
@@ -268,7 +273,10 @@ export function useChatSend() {
         }
         // Failed twice → mark these days so we don't retry them forever, and
         // CONTINUE to the next batch (do NOT abandon the remaining days).
-        if (!batchOk) batch.forEach((id) => failed.add(id))
+        if (!batchOk) {
+          batch.forEach((id) => failed.add(id))
+          updateBuild({ failedDayIds: [...failed] }) // show retry card in place
+        }
       }
 
       const finalTrip = useStore.getState().trips[tripId]
@@ -276,7 +284,7 @@ export function useChatSend() {
       const emptyRemaining = finalTrip ? finalTrip.days.filter((d) => !d.activities || d.activities.length === 0).length : 0
       return { complete: emptyRemaining === 0, total, filled: total - emptyRemaining }
     },
-    [streamOnce, applyTripResponse, updateLastAssistantMessage, agentSettings, activePreferences],
+    [streamOnce, applyTripResponse, updateLastAssistantMessage, agentSettings, activePreferences, updateBuild, bumpBuild],
   )
 
   // ── Core send function ───────────────────────────────────────────────────────
@@ -328,14 +336,16 @@ export function useChatSend() {
         // ── Phase 1: skeleton (fast structure, empty days) ──────────────────
         const skel = await streamOnce(
           { messages: baseHistory, trip: null, agentSettings, preferences: sendPreferences, intent: 'full', mode: 'skeleton' },
-          { onDelta: (t) => updateLastAssistantMessage(chatId, t), onDone: (resp) => applyTripResponse(resp, chatId, null) },
+          { onDelta: (t) => updateLastAssistantMessage(chatId, t), onDone: (resp) => applyTripResponse(resp, chatId, null), onPing: bumpBuild },
         )
         if (skel.serverError) {
+          endBuild()
           updateLastAssistantMessage(chatId, 'Sorry, something went wrong — please try again.', false)
           showToast({ message: 'Something went wrong — please try again.', type: 'warning' }); return
         }
-        if (skel.cutOff) { handleCutOff(chatId); return }
+        if (skel.cutOff) { endBuild(); handleCutOff(chatId); return }
         if (skel.jsonError) {
+          endBuild()
           updateLastAssistantMessage(chatId, skel.jsonError.naturalMessage, false)
           showToast({ message: 'Could not start the plan — please try again.', type: 'warning' }); return
         }
@@ -343,7 +353,10 @@ export function useChatSend() {
         const newTripId = useStore.getState().activeTripId
         let newTrip     = newTripId ? useStore.getState().trips[newTripId] : null
         // Chat-only reply (vague request) or no days → nothing to fill.
-        if (!newTripId || !newTrip || newTrip.days.length === 0) return
+        if (!newTripId || !newTrip || newTrip.days.length === 0) { endBuild(); return }
+
+        // Skeleton landed → move the live build into its construction phase.
+        updateBuild({ phase: 'building', statusLine: `Sketching your ${newTrip.days.length} days…` })
 
         // ── Skeleton validation: day count must match the requested duration ──
         const requestedDays = parseRequestedDays(text)
@@ -385,6 +398,17 @@ export function useChatSend() {
             false,
           )
           showToast({ message: `${missing} day${missing === 1 ? '' : 's'} didn't finish — tap Resume to retry`, type: 'warning' })
+        }
+        // ── Live-build completion: restrained finish, then hand off to the
+        //    normal (settled) trip view a beat later. ──
+        if (useStore.getState().build.active) {
+          const done = useStore.getState().trips[newTripId]
+          const activityCount = done ? done.days.reduce((n, d) => n + (d.activities?.length ?? 0), 0) : 0
+          const status = result.complete
+            ? `Your trip is ready · ${result.total} days · ${activityCount} ${activityCount === 1 ? 'activity' : 'activities'}`
+            : `Built ${result.filled} of ${result.total} days — ${result.total - result.filled} need a retry`
+          updateBuild({ phase: 'complete', statusLine: status })
+          setTimeout(() => useStore.getState().endBuild(), 1600)
         }
         return
       }
@@ -433,6 +457,7 @@ export function useChatSend() {
     isGenerating, activeTripId, activeTrip, messages, agentSettings,
     activePreferences, applyTripResponse, addChatMessage,
     updateLastAssistantMessage, setIsGenerating, streamOnce, fillEmptyDays,
+    updateBuild, endBuild, bumpBuild,
   ])
 
   // ── Resume an interrupted chunked generation ────────────────────────────────

@@ -34,6 +34,8 @@ import { useExchangeRates } from '@/hooks/useExchangeRates'
 import { useLivePrices } from '@/hooks/useLivePrices'
 import { DayCard } from './DayCard'
 import { ActivityCard } from './ActivityCard'
+import { BuildStatusLine, Typewriter, CountUp } from './BuildStatus'
+import type { BuildState } from '@/lib/store'
 import { BudgetPanel } from './BudgetPanel'
 import { LiveTravelPanel } from './LiveTravelPanel'
 import { ChecklistPanel } from './ChecklistPanel'
@@ -46,12 +48,14 @@ import { showToast } from '@/components/ui/Toast'
 
 interface ItineraryViewProps {
   trip: TripPlan
+  /** Non-null while the trip is being constructed live (see AppShell). */
+  building?: BuildState | null
 }
 
 // ─── Drag modifier: restrict to vertical axis only ───────────────────────────
 const restrictToVerticalAxis: Modifier = ({ transform }) => ({ ...transform, x: 0 })
 
-export function ItineraryView({ trip }: ItineraryViewProps) {
+export function ItineraryView({ trip, building }: ItineraryViewProps) {
   const { name, destination, startDate, endDate, budget, preferences } = trip
 
   const reorderActivities = useStore((s) => s.reorderActivities)
@@ -204,7 +208,7 @@ export function ItineraryView({ trip }: ItineraryViewProps) {
       <div className="flex-shrink-0 border-b border-[#1f1f1f] px-6 py-4">
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0">
-            <h1 className="text-lg font-bold text-[#f0f0f0] leading-tight truncate">{name}</h1>
+            <h1 className="text-lg font-bold text-[#f0f0f0] leading-tight truncate">{building ? <Typewriter text={name} /> : name}</h1>
             <div className="flex items-center gap-1 mt-0.5">
               <MapPin size={11} className="text-[#555] shrink-0" />
               <span className="text-[12px] text-[#666]">{destination.name}</span>
@@ -248,7 +252,7 @@ export function ItineraryView({ trip }: ItineraryViewProps) {
               <span className="text-[10px] text-[#444]">Estimated spend</span>
               <div className="flex items-center gap-2">
                 <span className={cn('text-[11px] font-semibold tabular-nums', overBudget ? 'text-[#ef4444]' : 'text-[#888]')}>
-                  {formatCurrency(spent, budget.currency)}
+                  {building ? <CountUp value={spent} format={(n) => formatCurrency(n, budget.currency)} /> : formatCurrency(spent, budget.currency)}
                   <span className="text-[#333] font-normal">
                     {' '}/ {formatCurrency(budget.cap, budget.currency)}
                   </span>
@@ -275,7 +279,9 @@ export function ItineraryView({ trip }: ItineraryViewProps) {
           <div className="mt-3 flex items-center justify-between gap-2">
             <span className="text-[10px] text-[#444]">
               Estimated spend{' '}
-              <span className="text-[#888] font-semibold tabular-nums">{formatCurrency(spent, budget.currency)}</span>
+              <span className="text-[#888] font-semibold tabular-nums">
+                {building ? <CountUp value={spent} format={(n) => formatCurrency(n, budget.currency)} /> : formatCurrency(spent, budget.currency)}
+              </span>
             </span>
             <CurrencySelector value={budget.currency} onChange={(c) => setTripDisplayCurrency(trip.id, c)} />
           </div>
@@ -420,6 +426,9 @@ export function ItineraryView({ trip }: ItineraryViewProps) {
                 variants={{ show: { transition: { staggerChildren: 0.06 } } }}
                 className="p-4 md:p-6 space-y-3 max-w-2xl mx-auto w-full pb-10"
               >
+                {/* Live construction status (real pipeline state) */}
+                {building && <div className="mb-1"><BuildStatusLine build={building} /></div>}
+
                 {/* Live flights & hotels (cached on the trip) */}
                 <LiveTravelPanel trip={trip} rates={rates} loading={liveLoading} onRefresh={refreshLive} />
 
@@ -439,8 +448,10 @@ export function ItineraryView({ trip }: ItineraryViewProps) {
                       isDraggingAny={activeDragId !== null}
                       rates={rates}
                       showLocalPrices={showLocalPrices}
-                      planning={isGenerating}
+                      planning={isGenerating && !building}
                       incomplete={showResume}
+                      building={!!building}
+                      failed={building?.failedDayIds.includes(day.id) ?? false}
                     />
                   </motion.div>
                 ))}

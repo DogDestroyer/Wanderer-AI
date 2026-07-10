@@ -274,10 +274,10 @@ test('an interrupted stream shows the retry state, not the empty hero', async ({
 
   await driveWizardToBuild(page, MESSAGE)
 
-  // The interrupted UI should appear in the wizard's generation step (it does
-  // not require a real generation): an explicit "that didn't finish / try again".
-  await expect(page.getByText(/that didn't finish/i)).toBeVisible({ timeout: 20_000 })
-  await expect(page.getByRole('button', { name: /try again/i })).toBeVisible()
+  // A skeleton interruption ends the live build and drops to the explicit
+  // interrupted-retry state (never the empty hero / a silent reset).
+  await expect(page.getByText(/generation was interrupted/i)).toBeVisible({ timeout: 20_000 })
+  await expect(page.getByRole('button', { name: /retry/i })).toBeVisible()
 
   // And we must NOT have silently dropped to an empty entry with no trip and no
   // explicit failure. The wizard is still up showing the interrupted state.
