@@ -60,6 +60,7 @@ export interface Activity {
 export interface Day {
   id: string
   date: string                  // ISO "2024-06-15"
+  dayTitle?: string             // short evocative title, e.g. "Kyoto: Temples & Kaiseki"
   weather?: WeatherForecast     // populated by weather API
   activities: Activity[]
   dayNotes?: string
@@ -202,6 +203,37 @@ export interface TripAssumption {
   source: 'message' | 'preference' | 'inferred'
 }
 
+// ─── Checklist (per-trip, no AI) ──────────────────────────────────────────────
+
+export type ChecklistSection = 'Before you go' | 'Packing' | 'Documents' | 'General'
+export const CHECKLIST_SECTIONS: ChecklistSection[] = ['Before you go', 'Packing', 'Documents', 'General']
+
+export interface ChecklistItem {
+  id: string
+  text: string
+  done: boolean
+  section: ChecklistSection
+  order: number
+}
+
+// ─── Reservations (per-trip, no AI) ───────────────────────────────────────────
+
+export type ReservationType = 'flight' | 'hotel' | 'restaurant' | 'activity' | 'transport'
+export type ReservationStatus = 'booked' | 'pending' | 'cancelled'
+
+export interface Reservation {
+  id: string
+  type: ReservationType
+  name: string
+  date?: string                 // YYYY-MM-DD
+  time?: string                 // HH:MM
+  confirmationNumber?: string
+  cost?: Cost                   // actual spend — flows into the budget
+  notes?: string
+  status: ReservationStatus
+  activityId?: string           // links to an itinerary activity (if reserved from one)
+}
+
 export interface TripPlan {
   id: string
   name: string
@@ -214,6 +246,8 @@ export interface TripPlan {
   suggestions: AgentSuggestion[]
   assumptions?: TripAssumption[]  // key parameters used when the plan was generated
   liveData?: TripLiveData         // cached live flight + hotel prices
+  checklist?: ChecklistItem[]     // per-trip checklist (feature 3)
+  reservations?: Reservation[]    // confirmed bookings (feature 4)
   coverImageUrl?: string
   createdAt: string
   updatedAt: string

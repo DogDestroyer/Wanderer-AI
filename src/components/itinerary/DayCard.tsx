@@ -1,11 +1,14 @@
 'use client'
 
+import { useState } from 'react'
 import { useDroppable } from '@dnd-kit/core'
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
-import { DollarSign } from 'lucide-react'
+import { DollarSign, Pencil, Check, X } from 'lucide-react'
 import type { Day } from '@/lib/types'
-import { cn, formatDayLabel, formatCurrency, getWeatherEmoji, isBadWeather } from '@/lib/utils'
+import { cn, formatCurrency, getWeatherEmoji, isBadWeather } from '@/lib/utils'
 import { calculateDayBudgetConverted, detectTimingConflicts } from '@/lib/recalculate'
+import { deriveDayTitle } from '@/lib/dayTitle'
+import { useStore } from '@/lib/store'
 import { type RatesMap, FALLBACK_RATES } from '@/lib/currency'
 import { SortableActivityCard } from './SortableActivityCard'
 
@@ -23,10 +26,24 @@ interface DayCardProps {
 export function DayCard({ day, index, tripId, tripCurrency, isDraggingAny, rates = FALLBACK_RATES, showLocalPrices, planning }: DayCardProps) {
   const { activities, weather, dayNotes } = day
 
+  const setDayTitle = useStore((s) => s.setDayTitle)
   const dayTotal = calculateDayBudgetConverted(activities, tripCurrency, rates)
   const conflictIds = new Set(detectTimingConflicts(activities))
-  const label = formatDayLabel(day.date, index)
+  const title = deriveDayTitle(day)  // stored dayTitle, else locally derived (no AI)
+  const dateStr = new Date(day.date + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
   const activityIds = activities.map((a) => a.id)
+
+  const [editingTitle, setEditingTitle] = useState(false)
+  const [titleDraft, setTitleDraft] = useState('')
+
+  function startEditTitle() {
+    setTitleDraft(title)
+    setEditingTitle(true)
+  }
+  function saveTitle() {
+    setDayTitle(tripId, day.id, titleDraft.trim())
+    setEditingTitle(false)
+  }
 
   const outdoorCount = activities.filter((a) => a.weatherSensitive).length
   const showRainWarning = !!weather && isBadWeather(weather.condition) && outdoorCount > 0
@@ -43,19 +60,48 @@ export function DayCard({ day, index, tripId, tripCurrency, isDraggingAny, rates
       )}
     >
       {/* ── Day header ─────────────────────────────────────────────────────── */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-[#1f1f1f]">
-        <div className="flex items-center gap-3">
+      <div className="group flex items-center justify-between px-4 py-3 border-b border-[#1f1f1f]">
+        <div className="flex items-center gap-3 min-w-0">
           {/* Day number pill */}
           <div className="w-7 h-7 rounded-lg bg-[#1f1f1f] flex items-center justify-center shrink-0">
             <span className="text-[11px] font-bold text-[#888]">{index + 1}</span>
           </div>
-          <div>
-            <p className="text-[13px] font-semibold text-[#f0f0f0] leading-tight">{label}</p>
-            {activities.length > 0 && (
-              <p className="text-[11px] text-[#444] leading-tight">
-                {activities.length} {activities.length === 1 ? 'activity' : 'activities'}
-              </p>
+          <div className="min-w-0">
+            {editingTitle ? (
+              <div className="flex items-center gap-1.5">
+                {/* eslint-disable-next-line jsx-a11y/no-autofocus */}
+                <input
+                  autoFocus
+                  value={titleDraft}
+                  onChange={(e) => setTitleDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') { e.preventDefault(); saveTitle() }
+                    else if (e.key === 'Escape') { e.preventDefault(); setEditingTitle(false) }
+                  }}
+                  placeholder="Day title"
+                  className="w-[180px] bg-[#0d0d0d] border border-[#2a2a2a] rounded-md px-2 py-0.5 text-[12px] text-[#f0f0f0] focus:outline-none focus:border-[#555]"
+                />
+                <button onClick={saveTitle} aria-label="Save title" className="text-[#3eb87a] hover:text-[#4dd88f]"><Check size={13} /></button>
+                <button onClick={() => setEditingTitle(false)} aria-label="Cancel" className="text-[#666] hover:text-[#f0f0f0]"><X size={13} /></button>
+              </div>
+            ) : (
+              <div className="flex items-center gap-1.5 min-w-0">
+                <p className="text-[13px] font-semibold text-[#f0f0f0] leading-tight truncate">
+                  Day {index + 1}{title && <span className="text-[#888] font-medium"> · {title}</span>}
+                </p>
+                <button
+                  onClick={startEditTitle}
+                  aria-label="Edit day title"
+                  className="shrink-0 text-[#555] hover:text-[#aaa] opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity"
+                >
+                  <Pencil size={11} />
+                </button>
+              </div>
             )}
+            <p className="text-[11px] text-[#444] leading-tight mt-0.5">
+              {dateStr}
+              {activities.length > 0 && ` · ${activities.length} ${activities.length === 1 ? 'activity' : 'activities'}`}
+            </p>
           </div>
         </div>
 
@@ -123,6 +169,7 @@ export function DayCard({ day, index, tripId, tripCurrency, isDraggingAny, rates
                   isDraggingAny={isDraggingAny}
                   tripId={tripId}
                   dayId={day.id}
+                  dayDate={day.date}
                   budgetCurrency={tripCurrency}
                   rates={rates}
                   showLocalPrices={showLocalPrices}
@@ -144,7 +191,7 @@ export function DayCard({ day, index, tripId, tripCurrency, isDraggingAny, rates
           <button
             onClick={() => {
               const msg =
-                `${label} has ${weather!.description.toLowerCase()} in the forecast ` +
+                `Day ${index + 1} (${dateStr}) has ${weather!.description.toLowerCase()} in the forecast ` +
                 `and I have ${outdoorCount} weather-sensitive ` +
                 `${outdoorCount === 1 ? 'activity' : 'activities'}. ` +
                 `Can you suggest indoor alternatives?`

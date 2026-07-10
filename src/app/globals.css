@@ -85,3 +85,15 @@ body {
 
 /* Leaflet tiles dark override */
 .leaflet-tile-pane { filter: brightness(0.7) invert(1) hue-rotate(180deg) saturate(0.4); }
+
+/* ── Print / PDF export ─────────────────────────────────────────────────────── */
+/* The export document is rendered into a body-level portal (.trip-print-portal),
+   hidden on screen and shown alone under @media print so the browser's
+   "Save as PDF" produces a clean black-on-white file. */
+.trip-print-portal { display: none; }
+@media print {
+  body > *:not(.trip-print-portal) { display: none !important; }
+  .trip-print-portal { display: block !important; }
+  html, body { background: #fff !important; }
+  @page { margin: 1.4cm; }
+}

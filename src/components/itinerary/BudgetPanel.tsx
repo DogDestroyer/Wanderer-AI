@@ -63,6 +63,10 @@ export function BudgetPanel({ trip, rates = FALLBACK_RATES }: { trip: TripPlan; 
   const currency = budget.currency
 
   const totalSpend = calculateTripBudgetConverted(days, currency, rates)
+  // Reserved actuals (feature 4) — real booked spend, converted to the trip currency.
+  const reservedActual = (trip.reservations ?? [])
+    .filter((r) => r.status !== 'cancelled' && r.cost)
+    .reduce((sum, r) => sum + convertCost(r.cost!, currency, rates), 0)
   const cap = budget.cap
   const capSet = cap > 0
   const overBudget = capSet && totalSpend > cap
@@ -117,6 +121,25 @@ export function BudgetPanel({ trip, rates = FALLBACK_RATES }: { trip: TripPlan; 
             sub={`of ${totalActivities} total`}
           />
         </div>
+
+        {/* ── Estimated vs reserved actual (feature 4) ─────────────────────── */}
+        {reservedActual > 0 && (
+          <div className="bg-[#111111] rounded-xl border border-[#1f1f1f] p-4">
+            <p className="text-[13px] font-semibold text-[#f0f0f0] mb-3">Estimated vs reserved</p>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <p className="text-[10px] text-[#555] mb-0.5">Estimated (plan)</p>
+                <p className="text-base font-bold text-[#888] tabular-nums">{formatCurrency(totalSpend, currency)}</p>
+              </div>
+              <div>
+                <p className="text-[10px] text-[#555] mb-0.5 flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-[#3eb87a]" /> Reserved (actual)
+                </p>
+                <p className="text-base font-bold text-[#3eb87a] tabular-nums">{formatCurrency(reservedActual, currency)}</p>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* ── Overall progress bar ─────────────────────────────────────────── */}
         {capSet && (

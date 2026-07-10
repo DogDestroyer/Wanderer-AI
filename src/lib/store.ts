@@ -2,7 +2,7 @@
 
 import { create } from 'zustand'
 import { persist, createJSONStorage } from 'zustand/middleware'
-import type { TripPlan, Day, Activity, ChatMessage, AgentSuggestion, WeatherForecast, AgentSettings, TripPreferences, TripLiveData } from './types'
+import type { TripPlan, Day, Activity, ChatMessage, AgentSuggestion, WeatherForecast, AgentSettings, TripPreferences, TripLiveData, ChecklistItem, ChecklistSection, Reservation } from './types'
 import { convertAmount, FALLBACK_RATES, type RatesMap } from './currency'
 import { DEFAULT_AGENT_SETTINGS, DEFAULT_PREFERENCES } from './types'
 import { recalculateDay } from './recalculate'
@@ -75,6 +75,21 @@ interface AppState {
   ) => void
   deleteActivity: (tripId: string, dayId: string, activityId: string) => void
   toggleActivityLock: (tripId: string, dayId: string, activityId: string) => void
+
+  // ── Day titles (cosmetic — no lock, no recalc) ──
+  setDayTitle: (tripId: string, dayId: string, title: string) => void
+
+  // ── Checklist ──
+  setChecklist: (tripId: string, items: ChecklistItem[]) => void
+  addChecklistItem: (tripId: string, text: string, section: ChecklistSection) => void
+  toggleChecklistItem: (tripId: string, itemId: string) => void
+  deleteChecklistItem: (tripId: string, itemId: string) => void
+  reorderChecklist: (tripId: string, items: ChecklistItem[]) => void
+
+  // ── Reservations ──
+  addReservation: (tripId: string, reservation: Reservation) => void
+  updateReservation: (tripId: string, reservationId: string, patch: Partial<Reservation>) => void
+  deleteReservation: (tripId: string, reservationId: string) => void
 
   // ── Chat ──
   addChatMessage: (tripId: string, message: ChatMessage) => void
@@ -397,6 +412,70 @@ export const useStore = create<AppState>()(
           if (!trip) return s
           return { trips: { ...s.trips, [tripId]: { ...trip, liveData } } }
         }),
+
+      // ── Day titles (cosmetic — no lock, no recalc) ──────────────────────────
+
+      setDayTitle: (tripId, dayId, title) =>
+        set((s) => ({
+          trips: patchTrip(s.trips, tripId, (trip) => ({
+            days: trip.days.map((d) => (d.id === dayId ? { ...d, dayTitle: title } : d)),
+          })),
+        })),
+
+      // ── Checklist ───────────────────────────────────────────────────────────
+
+      setChecklist: (tripId, items) =>
+        set((s) => ({ trips: patchTrip(s.trips, tripId, () => ({ checklist: items })) })),
+
+      addChecklistItem: (tripId, text, section) =>
+        set((s) => ({
+          trips: patchTrip(s.trips, tripId, (trip) => {
+            const list = trip.checklist ?? []
+            const order = list.filter((i) => i.section === section).length
+            const item: ChecklistItem = { id: now() + Math.random().toString(36).slice(2, 6), text, done: false, section, order }
+            return { checklist: [...list, item] }
+          }),
+        })),
+
+      toggleChecklistItem: (tripId, itemId) =>
+        set((s) => ({
+          trips: patchTrip(s.trips, tripId, (trip) => ({
+            checklist: (trip.checklist ?? []).map((i) => (i.id === itemId ? { ...i, done: !i.done } : i)),
+          })),
+        })),
+
+      deleteChecklistItem: (tripId, itemId) =>
+        set((s) => ({
+          trips: patchTrip(s.trips, tripId, (trip) => ({
+            checklist: (trip.checklist ?? []).filter((i) => i.id !== itemId),
+          })),
+        })),
+
+      reorderChecklist: (tripId, items) =>
+        set((s) => ({ trips: patchTrip(s.trips, tripId, () => ({ checklist: items })) })),
+
+      // ── Reservations ────────────────────────────────────────────────────────
+
+      addReservation: (tripId, reservation) =>
+        set((s) => ({
+          trips: patchTrip(s.trips, tripId, (trip) => ({
+            reservations: [...(trip.reservations ?? []), reservation],
+          })),
+        })),
+
+      updateReservation: (tripId, reservationId, patch) =>
+        set((s) => ({
+          trips: patchTrip(s.trips, tripId, (trip) => ({
+            reservations: (trip.reservations ?? []).map((r) => (r.id === reservationId ? { ...r, ...patch } : r)),
+          })),
+        })),
+
+      deleteReservation: (tripId, reservationId) =>
+        set((s) => ({
+          trips: patchTrip(s.trips, tripId, (trip) => ({
+            reservations: (trip.reservations ?? []).filter((r) => r.id !== reservationId),
+          })),
+        })),
 
       // ── Weather ───────────────────────────────────────────────────────────
       // Weather is transient data — we update days directly without bumping updatedAt.

@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { MapPin, Clock, Lock, Unlock, Pencil, CloudRain, Check, X } from 'lucide-react'
+import { MapPin, Clock, Lock, Unlock, Pencil, CloudRain, Check, X, BookmarkCheck, CircleCheck } from 'lucide-react'
 import type { Activity, ActivityCategory } from '@/lib/types'
 import {
   cn,
@@ -59,6 +59,9 @@ interface ActivityCardProps {
   /** When provided, the card is interactive: lock toggle + edit pencil are shown. */
   onToggleLock?: () => void
   onSaveEdit?: (patch: Partial<Activity>) => void
+  /** Reservation link (feature 4): whether this activity is reserved, + a callback. */
+  isReserved?: boolean
+  onReserve?: () => void
 }
 
 export function ActivityCard({
@@ -70,6 +73,8 @@ export function ActivityCard({
   showLocalPrices = true,
   onToggleLock,
   onSaveEdit,
+  isReserved,
+  onReserve,
 }: ActivityCardProps) {
   const {
     title,
@@ -217,6 +222,26 @@ export function ActivityCard({
               >
                 <Pencil size={11} />
               </button>
+            )}
+
+            {/* Reserved badge, or "Mark as reserved" (interactive only) */}
+            {isReserved ? (
+              <span className="inline-flex items-center gap-1 text-[9px] font-medium text-[#3eb87a] bg-[#0d1a14] px-1.5 py-0.5 rounded shrink-0">
+                <CircleCheck size={9} /> Reserved
+              </span>
+            ) : (
+              interactive && onReserve && (
+                <button
+                  type="button"
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onClick={(e) => { e.stopPropagation(); onReserve() }}
+                  title="Mark as reserved"
+                  aria-label="Mark as reserved"
+                  className="inline-flex items-center justify-center w-5 h-5 rounded-md text-[#555] hover:text-[#3eb87a] transition-all shrink-0 opacity-100 md:opacity-0 md:group-hover:opacity-100"
+                >
+                  <BookmarkCheck size={11} />
+                </button>
+              )
             )}
 
             {weatherSensitive && (

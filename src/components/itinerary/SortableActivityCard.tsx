@@ -8,6 +8,7 @@ import { cn } from '@/lib/utils'
 import type { RatesMap } from '@/lib/currency'
 import { useStore } from '@/lib/store'
 import { showToast } from '@/components/ui/Toast'
+import { reservationFromActivity } from '@/lib/reservations'
 import { ActivityCard, TravelConnector } from './ActivityCard'
 
 interface Props {
@@ -18,6 +19,7 @@ interface Props {
   isDraggingAny: boolean
   tripId: string
   dayId: string
+  dayDate: string
   budgetCurrency?: string
   rates?: RatesMap
   showLocalPrices?: boolean
@@ -31,12 +33,21 @@ export function SortableActivityCard({
   isDraggingAny,
   tripId,
   dayId,
+  dayDate,
   budgetCurrency,
   rates,
   showLocalPrices,
 }: Props) {
   const toggleActivityLock = useStore((s) => s.toggleActivityLock)
   const saveActivityEdit = useStore((s) => s.saveActivityEdit)
+  const addReservation = useStore((s) => s.addReservation)
+  const reservations = useStore((s) => s.trips[tripId]?.reservations) ?? []
+  const isReserved = reservations.some((r) => r.activityId === activity.id && r.status !== 'cancelled')
+
+  function handleReserve() {
+    addReservation(tripId, reservationFromActivity(activity, dayDate))
+    showToast({ message: `“${activity.title}” marked as reserved`, type: 'success' })
+  }
 
   const {
     attributes,
@@ -108,6 +119,8 @@ export function SortableActivityCard({
           showLocalPrices={showLocalPrices}
           onToggleLock={() => toggleActivityLock(tripId, dayId, activity.id)}
           onSaveEdit={handleSaveEdit}
+          isReserved={isReserved}
+          onReserve={handleReserve}
         />
       </div>
     </div>

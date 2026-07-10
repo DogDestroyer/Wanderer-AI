@@ -181,9 +181,14 @@ Always use **"create_trip"**. Never use replace_trip, replace_day_activities, or
 {
   "id": "day_<8 unique lowercase hex chars>",
   "date": "YYYY-MM-DD",
+  "dayTitle": "Kyoto: Temples & Kaiseki",
   "activities": [ /* Activity objects */ ],
   "dayNotes": ""
 }
+
+Every Day MUST include a "dayTitle": a short, evocative title (max ~5 words) capturing
+that day's place + theme, e.g. "Arrival & Shibuya Lights", "Nara Day Trip", "Tsukiji &
+Gardens". This is cosmetic and rides along with normal generation — keep it punchy.
 
 ## Activity
 
@@ -380,7 +385,7 @@ function buildModePrompt(mode: 'skeleton' | 'fill' | undefined, fillDayIds?: str
 You are generating ONLY the trip skeleton. Activities come later in a separate step.
 - Use action "create_trip" with the full TripPlan, BUT every day's "activities" array MUST be EMPTY: [].
 - Provide: name, destination, startDate, endDate, budget (with a sensible currency + cap), preferences, and one Day per day of the trip.
-- Each Day MUST have a unique "id", the correct "date", and a short "dayNotes" naming that day's area/theme (e.g. "Asakusa & old Tokyo", "Day trip to Nara"). NO activities.
+- Each Day MUST have a unique "id", the correct "date", a short evocative "dayTitle" (max ~5 words, e.g. "Asakusa & Old Tokyo"), and a "dayNotes" theme. NO activities.
 - Still include the "assumptions" array.
 - Keep your conversational message to ONE short sentence (e.g. "Here's your 7-day Japan trip — filling in each day now…").
 - Do NOT output any activities under any circumstances. An empty activities array is REQUIRED for every day.`

@@ -36,6 +36,9 @@ import { DayCard } from './DayCard'
 import { ActivityCard } from './ActivityCard'
 import { BudgetPanel } from './BudgetPanel'
 import { LiveTravelPanel } from './LiveTravelPanel'
+import { ChecklistPanel } from './ChecklistPanel'
+import { ReservationsPanel } from './ReservationsPanel'
+import { ExportMenu } from './ExportMenu'
 import { MapPanel } from '@/components/map/MapPanel'
 import { PreferenceSliders } from '@/components/preferences/PreferenceSliders'
 import { AssumptionChips } from './AssumptionChips'
@@ -63,7 +66,7 @@ export function ItineraryView({ trip }: ItineraryViewProps) {
   // Live flight + hotel prices (cached on the trip; refetched only on param change)
   const { loading: liveLoading, refresh: refreshLive } = useLivePrices(trip)
 
-  const [activeTab, setActiveTab] = useState<'itinerary' | 'budget' | 'map'>('itinerary')
+  const [activeTab, setActiveTab] = useState<'itinerary' | 'budget' | 'checklist' | 'reservations' | 'map'>('itinerary')
   const [showSliders, setShowSliders] = useState(false)
   const [localDays, setLocalDays] = useState<Day[]>(trip.days)
   const [activeDragId, setActiveDragId] = useState<string | null>(null)
@@ -180,6 +183,12 @@ export function ItineraryView({ trip }: ItineraryViewProps) {
   // Show original local prices as a muted secondary value on cards (default on).
   const showLocalPrices = preferences?.showLocalPrices !== false
 
+  // Tab badges: checklist progress + active reservation count.
+  const checklist = trip.checklist ?? []
+  const checklistDone = checklist.filter((i) => i.done).length
+  const checklistTotal = checklist.length
+  const reservationCount = (trip.reservations ?? []).filter((r) => r.status !== 'cancelled').length
+
   // Chunked generation: days with no activities yet. While generating they fill
   // in progressively; if generation was interrupted, offer a Resume.
   const emptyDayCount = trip.days.filter((d) => !d.activities || d.activities.length === 0).length
@@ -202,6 +211,7 @@ export function ItineraryView({ trip }: ItineraryViewProps) {
             </div>
           </div>
           <div className="flex items-center gap-2 shrink-0">
+            <ExportMenu trip={trip} rates={rates} />
             {preferences && (
               <button
                 onClick={() => setShowSliders((v) => !v)}
@@ -349,12 +359,18 @@ export function ItineraryView({ trip }: ItineraryViewProps) {
 
       {/* ── Tabs ─────────────────────────────────────────────────────────────── */}
       <div className="flex-shrink-0 border-b border-[#1f1f1f] px-6">
-        <div className="flex gap-0">
+        <div className="flex gap-0 overflow-x-auto scrollbar-none">
           <TabButton active={activeTab === 'itinerary'} onClick={() => setActiveTab('itinerary')}>
             Itinerary
           </TabButton>
           <TabButton active={activeTab === 'budget'} onClick={() => setActiveTab('budget')}>
             Budget
+          </TabButton>
+          <TabButton active={activeTab === 'checklist'} onClick={() => setActiveTab('checklist')}>
+            Checklist{checklistTotal > 0 && <span className="ml-1 text-[10px] text-[#555] tabular-nums">{checklistDone}/{checklistTotal}</span>}
+          </TabButton>
+          <TabButton active={activeTab === 'reservations'} onClick={() => setActiveTab('reservations')}>
+            Reservations{reservationCount > 0 && <span className="ml-1 text-[10px] text-[#555] tabular-nums">{reservationCount}</span>}
           </TabButton>
           <TabButton active={activeTab === 'map'} onClick={() => setActiveTab('map')}>
             Map
@@ -364,6 +380,10 @@ export function ItineraryView({ trip }: ItineraryViewProps) {
 
       {/* ── Budget panel ─────────────────────────────────────────────────────── */}
       {activeTab === 'budget' && <BudgetPanel trip={trip} rates={rates} />}
+
+      {/* ── Checklist / Reservations panels ──────────────────────────────────── */}
+      {activeTab === 'checklist' && <ChecklistPanel trip={trip} />}
+      {activeTab === 'reservations' && <ReservationsPanel trip={trip} />}
 
       {/* ── Map panel ────────────────────────────────────────────────────────── */}
       {activeTab === 'map' && (
