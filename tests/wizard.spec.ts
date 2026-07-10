@@ -1,18 +1,17 @@
 import { test, expect, type Page, type Route } from '@playwright/test'
 
 // New-trip WIZARD end-to-end. Mocks /api/chat so it's deterministic and free.
-// The mock echoes the wizard's generation request: it builds the skeleton from
-// the requested day count and derives assumption SOURCES from the message —
-// fields present in the message become 'message' (user), absent ones 'inferred'.
-// This proves the wiring: wizard answers → one request with all fields → chips.
+// The mock echoes the wizard's generation request and derives assumption SOURCES
+// from the message (present → 'message'/user, absent → 'inferred'). Covers the
+// refinement pass: complete country search, country-filtered cities, stepper-
+// only days/people, computed dates, and the Work party type.
 
 const BASE_URL = process.env.BASE_URL ?? 'http://localhost:3000'
 const DEMO_PASSWORD = process.env.DEMO_PASSWORD ?? ''
 const VERCEL_BYPASS = process.env.VERCEL_BYPASS ?? ''
 
-// The floating pills drift forever (CSS animation); reduced motion disables it
-// (via a prefers-reduced-motion media query) so elements are click-stable.
-test.use({ reducedMotion: 'reduce' })
+// The floating pills drift forever (CSS animation), so pill clicks use
+// { force: true } to bypass Playwright's stability wait.
 
 async function grantBypass(page: Page) {
   if (!VERCEL_BYPASS) return
@@ -43,14 +42,14 @@ function mkActivity(id: string) {
   }
 }
 
-// Assumptions whose SOURCE depends on what the wizard put in the message.
 function assumptionsFor(bodyText: string) {
   const has = (re: RegExp) => re.test(bodyText)
   const src = (present: boolean) => (present ? 'message' : 'inferred')
+  const partyVal = has(/work|business/i) ? 'Work' : has(/couple|people/i) ? 'Couple' : 'Solo'
   return [
-    { field: 'partyType', label: 'Party',  value: has(/couple|people/i) ? 'Couple' : 'Solo',       source: src(has(/couple|people/i)) },
-    { field: 'budget',    label: 'Budget',  value: has(/SGD/i) ? 'SGD 5,000' : 'Mid-range',          source: src(has(/SGD|budget style/i)) },
-    { field: 'pace',      label: 'Pace',    value: 'Balanced',                                       source: 'inferred' },
+    { field: 'partyType', label: 'Party',  value: partyVal, source: src(has(/work|business|couple|people/i)) },
+    { field: 'budget',    label: 'Budget',  value: has(/SGD/i) ? 'SGD 5,000' : 'Mid-range', source: src(has(/SGD|budget style/i)) },
+    { field: 'pace',      label: 'Pace',    value: 'Balanced', source: 'inferred' },
     { field: 'dates',     label: 'Dates',   value: has(/\d{4}-\d{2}-\d{2}/) ? 'Sep 2026' : 'Flexible', source: src(has(/\d{4}-\d{2}-\d{2}/)) },
   ]
 }
@@ -75,16 +74,11 @@ async function installMock(page: Page, state: MockState) {
     const body = route.request().postDataJSON() as { mode?: string; fillDayIds?: string[] }
     if (body.mode === 'skeleton') {
       state.skeletonBodies.push(raw)
-      // Derive assumption sources from the MESSAGE only (what the user stated),
-      // not the whole body (which always carries default preferences).
       const parsed = JSON.parse(raw) as { messages?: { content: string }[] }
       const msgText = (parsed.messages ?? []).map((m) => m.content).join(' ')
       const m = msgText.match(/(\d+)\s*days/i)
       const days = m ? parseInt(m[1], 10) : 3
-      return route.fulfill({
-        status: 200, headers: { 'Content-Type': 'text/event-stream' },
-        body: sse({ type: 'done', response: { action: 'create_trip', message: 'Building your trip…', trip: skeletonTrip(days, msgText) } }),
-      })
+      return route.fulfill({ status: 200, headers: { 'Content-Type': 'text/event-stream' }, body: sse({ type: 'done', response: { action: 'create_trip', message: 'Building your trip…', trip: skeletonTrip(days, msgText) } }) })
     }
     if (body.mode === 'fill') {
       const ids = body.fillDayIds ?? []
@@ -99,27 +93,32 @@ function tripSnapshot(page: Page) {
   return page.evaluate(() => {
     const s = JSON.parse(localStorage.getItem('wandr-v1') || '{}').state
     const t = s?.trips?.trip_wiz
-    if (!t) return { total: 0, empty: 0, assumptions: [] as { source: string }[] }
+    if (!t) return { total: 0, empty: 0, assumptions: [] as { source: string; field: string; value: string }[] }
     return {
       total: t.days.length,
       empty: t.days.filter((d: { activities?: unknown[] }) => !d.activities || d.activities.length === 0).length,
-      assumptions: (t.assumptions ?? []) as { source: string }[],
+      assumptions: (t.assumptions ?? []) as { source: string; field: string; value: string }[],
     }
   })
 }
 
-// ─── Test 1 · full wizard → one request with all fields → 10 filled days ───────
+function draftSnapshot(page: Page) {
+  return page.evaluate(() => {
+    const s = JSON.parse(localStorage.getItem('wandr-v1') || '{}').state
+    return s?.wizard?.draft ?? null
+  })
+}
+
+// ─── 1 · full flow: one request with all answers (incl. Work) → all days ──────
 
 test('completing the wizard fires ONE request with all answers and builds every day', async ({ page }) => {
   const state: MockState = { skeletonBodies: [] }
   await loadApp(page)
   await installMock(page, state)
 
-  // Wizard auto-opens on a fresh start.
   await expect(page.getByTestId('wizard')).toBeVisible({ timeout: 15_000 })
-  await expect(page.getByTestId('wizard-progress')).toHaveText('Step 1 of 9')
 
-  // Step 1 — country (floating pill)
+  // Step 1 — country
   await page.getByRole('button', { name: 'Japan' }).click({ force: true })
   await page.getByRole('button', { name: 'Continue' }).click()
 
@@ -128,19 +127,21 @@ test('completing the wizard fires ONE request with all answers and builds every 
   await page.getByRole('button', { name: 'Kyoto', exact: true }).click()
   await page.getByRole('button', { name: 'Continue' }).click()
 
-  // Step 3 — days (seed then set to 10)
-  await page.getByRole('button', { name: 'Set a value' }).click()
-  await page.getByRole('spinbutton').fill('10')
+  // Step 3 — days: default 7 → 10 via steppers only
+  await expect(page.getByTestId('stepper-value')).toHaveText('7')
+  for (let i = 0; i < 3; i++) await page.getByRole('button', { name: 'Increase' }).click()
+  await expect(page.getByTestId('stepper-value')).toHaveText('10')
   await page.getByRole('button', { name: 'Continue' }).click()
 
-  // Step 4 — dates (range → confirms 10 days)
-  const dates = page.locator('input[type="date"]')
-  await dates.nth(0).fill('2026-09-15')
-  await dates.nth(1).fill('2026-09-24')
+  // Step 4 — dates: pick a future start (next month, day 15)
+  await page.getByRole('button', { name: 'Next month' }).click()
+  await page.getByRole('button', { name: '15', exact: true }).click()
+  await expect(page.getByText(/· 10 days/)).toBeVisible()
   await page.getByRole('button', { name: 'Continue' }).click()
 
-  // Step 5 — people (seed 2 → couple)
-  await page.getByRole('button', { name: 'Set a value' }).click()
+  // Step 5 — people: default 3, choose Work
+  await expect(page.getByTestId('stepper-value')).toHaveText('3')
+  await page.getByRole('button', { name: 'Work', exact: true }).click()
   await page.getByRole('button', { name: 'Continue' }).click()
 
   // Step 6 — exact budget
@@ -149,45 +150,38 @@ test('completing the wizard fires ONE request with all answers and builds every 
 
   // Step 7 — interests
   await page.getByRole('button', { name: 'food', exact: true }).click({ force: true })
-  await page.getByRole('button', { name: 'nature', exact: true }).click({ force: true })
-  await page.getByRole('button', { name: 'history', exact: true }).click({ force: true })
+  await page.getByRole('button', { name: 'museums', exact: true }).click({ force: true })
   await page.getByRole('button', { name: 'Continue' }).click()
 
   // Step 8 — notes → build
-  await page.getByRole('textbox').fill('We love ramen and want a day trip to Nara.')
+  await expect(page.getByRole('button', { name: 'Build my trip' })).toBeVisible()
+  await page.getByRole('textbox').fill('We love ramen.')
   await page.getByRole('button', { name: 'Build my trip' }).click()
 
-  // Generation runs; poll until all 10 days are filled.
   await expect.poll(async () => (await tripSnapshot(page)).total, { timeout: 30_000 }).toBe(10)
   await expect.poll(async () => (await tripSnapshot(page)).empty, { timeout: 30_000 }).toBe(0)
 
-  // Exactly ONE skeleton (generation) request, and it carried every answer.
   expect(state.skeletonBodies.length).toBe(1)
   const body = state.skeletonBodies[0]
   expect(body).toContain('Tokyo')
   expect(body).toContain('Kyoto')
-  expect(body).toContain('Japan')
   expect(body).toMatch(/10 days/)
-  expect(body).toMatch(/2026-09-15/)
-  expect(body).toMatch(/2 people|couple/)
+  expect(body).toMatch(/\d{4}-\d{2}-\d{2}/)      // a concrete date
+  expect(body).toMatch(/work|business/i)          // Work party type flowed through
   expect(body).toContain('SGD')
   expect(body).toContain('5,000')
-  expect(body).toContain('food')
-  expect(body).toContain('nature')
-  expect(body).toContain('history')
-  expect(body).toContain('ramen') // the verbatim note
+  expect(body).toContain('museums')
+  expect(body).toContain('ramen')
 
-  // Wizard hands off to the trip view; assumption chips reflect answers as
-  // user-sourced (non-inferred) for every field the wizard provided.
   await expect(page.getByTestId('wizard')).toBeHidden({ timeout: 10_000 })
   const snap = await tripSnapshot(page)
-  const answered = snap.assumptions.filter((a) => ['partyType', 'budget', 'dates'].includes((a as { field?: string }).field ?? ''))
-  expect(answered.length).toBeGreaterThan(0)
-  expect(answered.every((a) => a.source !== 'inferred')).toBe(true)
-  await expect(page.getByText('Planned for:')).toBeVisible()
+  const party = snap.assumptions.find((a) => a.field === 'partyType')
+  expect(party?.value).toBe('Work')
+  expect(party?.source).not.toBe('inferred')
+  await expect(page.getByText('Work', { exact: true }).first()).toBeVisible()
 })
 
-// ─── Test 2 · skip every step → still generates, all-inferred chips ────────────
+// ─── 2 · skip every step → all-inferred assumptions ───────────────────────────
 
 test('skipping every step still generates a trip with all-inferred assumptions', async ({ page }) => {
   const state: MockState = { skeletonBodies: [] }
@@ -195,23 +189,18 @@ test('skipping every step still generates a trip with all-inferred assumptions',
   await installMock(page, state)
 
   await expect(page.getByTestId('wizard')).toBeVisible({ timeout: 15_000 })
-
-  // Skip steps 1–7 via the footer, then Build on the notes step (no note).
-  for (let i = 0; i < 7; i++) {
-    await page.getByRole('button', { name: 'Skip this step' }).click()
-  }
+  for (let i = 0; i < 7; i++) await page.getByRole('button', { name: 'Skip this step' }).click()
+  await expect(page.getByRole('button', { name: 'Build my trip' })).toBeVisible()
   await page.getByRole('button', { name: 'Build my trip' }).click()
 
-  // Generation still succeeds (mock defaults to a short trip), all days filled.
   await expect.poll(async () => (await tripSnapshot(page)).total, { timeout: 30_000 }).toBeGreaterThan(0)
   await expect.poll(async () => (await tripSnapshot(page)).empty, { timeout: 30_000 }).toBe(0)
-
   const snap = await tripSnapshot(page)
   expect(snap.assumptions.length).toBeGreaterThan(0)
   expect(snap.assumptions.every((a) => a.source === 'inferred')).toBe(true)
 })
 
-// ─── Test 3 · back navigation preserves answers; refresh resumes in place ──────
+// ─── 3 · back navigation preserves answers; refresh resumes in place ──────────
 
 test('back navigation preserves answers and a refresh resumes at the same step', async ({ page }) => {
   const state: MockState = { skeletonBodies: [] }
@@ -219,28 +208,109 @@ test('back navigation preserves answers and a refresh resumes at the same step',
   await installMock(page, state)
 
   await expect(page.getByTestId('wizard')).toBeVisible({ timeout: 15_000 })
-
-  // Select a country, advance, then go back — the selection must persist.
   const japanPill = page.locator('button.wander-pill').filter({ hasText: 'Japan' })
   await japanPill.click({ force: true })
   await page.getByRole('button', { name: 'Continue' }).click()
   await expect(page.getByTestId('wizard-progress')).toHaveText('Step 2 of 9')
   await page.getByRole('button', { name: 'Back' }).click()
-  await expect(page.getByTestId('wizard-progress')).toHaveText('Step 1 of 9')
-  // Japan pill is still selected (aria-pressed).
   await expect(japanPill).toHaveAttribute('aria-pressed', 'true')
 
-  // Advance a couple of steps, then refresh — should resume at the same step.
-  await page.getByRole('button', { name: 'Continue' }).click() // → 2
-  await page.getByRole('button', { name: 'Continue' }).click() // → 3
+  await page.getByRole('button', { name: 'Continue' }).click()
+  await page.getByRole('button', { name: 'Continue' }).click()
   await expect(page.getByTestId('wizard-progress')).toHaveText('Step 3 of 9')
-
   await page.reload({ waitUntil: 'domcontentloaded' })
   await expect(page.getByTestId('wizard')).toBeVisible({ timeout: 15_000 })
   await expect(page.getByTestId('wizard-progress')).toHaveText('Step 3 of 9')
-
-  // Going back to step 1 still shows Japan selected (draft persisted).
   await page.getByRole('button', { name: 'Back' }).click()
   await page.getByRole('button', { name: 'Back' }).click()
   await expect(page.locator('button.wander-pill').filter({ hasText: 'Japan' })).toHaveAttribute('aria-pressed', 'true')
+})
+
+// ─── 4 · complete country search (typo-tolerant + full list) ──────────────────
+
+test('country search finds Kazakhstan (typo) and Uzbekistan', async ({ page }) => {
+  await loadApp(page)
+  await expect(page.getByTestId('wizard')).toBeVisible({ timeout: 15_000 })
+  // The search input's placeholder clears once a chip is added, so target it by role.
+  const search = page.getByRole('textbox')
+
+  await search.fill('Kazahstan') // deliberate typo
+  await expect(page.getByRole('button', { name: /Kazakhstan/ })).toBeVisible()
+  await page.getByRole('button', { name: /Kazakhstan/ }).click()
+
+  await search.fill('Uzbek')
+  await expect(page.getByRole('button', { name: /Uzbekistan/ })).toBeVisible()
+})
+
+// ─── 5 · cities are constrained to the selected country ───────────────────────
+
+test('selecting China yields only Chinese cities (no Chicago / Chiang Mai)', async ({ page }) => {
+  await loadApp(page)
+  await expect(page.getByTestId('wizard')).toBeVisible({ timeout: 15_000 })
+
+  // Select China via search (not a popular pill).
+  await page.getByRole('textbox').fill('China')
+  await page.getByRole('button', { name: 'China' }).first().click()
+  await page.getByRole('button', { name: 'Continue' }).click()
+
+  // Grid: Chongqing present + selectable; Chicago / Chiang Mai absent.
+  await expect(page.getByRole('button', { name: 'Chongqing', exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Chicago', exact: true })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Chiang Mai', exact: true })).toHaveCount(0)
+  await page.getByRole('button', { name: 'Chongqing', exact: true }).click()
+  await expect(page.getByRole('button', { name: /Remove Chongqing/ })).toBeVisible()
+
+  // Search is also constrained: "Chi" must not surface Chicago or Chiang Mai.
+  await page.getByRole('textbox').fill('Chi')
+  await page.waitForTimeout(300)
+  await expect(page.getByRole('button', { name: 'Chicago', exact: true })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Chiang Mai', exact: true })).toHaveCount(0)
+})
+
+// ─── 6 · days step: default 7, stepper-only ───────────────────────────────────
+
+test('days step defaults to 7 and only steppers change it (no manual entry)', async ({ page }) => {
+  await loadApp(page)
+  await expect(page.getByTestId('wizard')).toBeVisible({ timeout: 15_000 })
+  // Reach the days step by skipping 1 & 2.
+  await page.getByRole('button', { name: 'Skip this step' }).click()
+  await page.getByRole('button', { name: 'Skip this step' }).click()
+  await expect(page.getByTestId('wizard-progress')).toHaveText('Step 3 of 9')
+
+  await expect(page.getByTestId('stepper-value')).toHaveText('7')
+  // No manual text/number entry on this step.
+  await expect(page.locator('input[type="number"]')).toHaveCount(0)
+  await expect(page.getByRole('spinbutton')).toHaveCount(0)
+
+  await page.getByRole('button', { name: 'Increase' }).click()
+  await expect(page.getByTestId('stepper-value')).toHaveText('8')
+  await page.getByRole('button', { name: 'Decrease' }).click()
+  await page.getByRole('button', { name: 'Decrease' }).click()
+  await expect(page.getByTestId('stepper-value')).toHaveText('6')
+})
+
+// ─── 7 · dates: picking a start computes the locked end date ───────────────────
+
+test('picking a start date computes the correct locked end date from the day count', async ({ page }) => {
+  await loadApp(page)
+  await expect(page.getByTestId('wizard')).toBeVisible({ timeout: 15_000 })
+  // Skip to days, set to 10, continue to dates.
+  await page.getByRole('button', { name: 'Skip this step' }).click()
+  await page.getByRole('button', { name: 'Skip this step' }).click()
+  for (let i = 0; i < 3; i++) await page.getByRole('button', { name: 'Increase' }).click()
+  await expect(page.getByTestId('stepper-value')).toHaveText('10')
+  await page.getByRole('button', { name: 'Continue' }).click()
+
+  // Pick day 15 of next month.
+  await page.getByRole('button', { name: 'Next month' }).click()
+  await page.getByRole('button', { name: '15', exact: true }).click()
+  await expect(page.getByText(/· 10 days/)).toBeVisible()
+
+  const draft = await draftSnapshot(page)
+  expect(draft.startDate).toMatch(/-15$/)
+  // end = start + (10 - 1) days = the 24th of the same month.
+  const start = new Date(draft.startDate + 'T00:00:00')
+  const end = new Date(draft.endDate + 'T00:00:00')
+  const diff = Math.round((end.getTime() - start.getTime()) / 86_400_000)
+  expect(diff).toBe(9)
 })

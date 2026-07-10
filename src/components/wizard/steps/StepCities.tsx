@@ -1,26 +1,29 @@
 'use client'
 
-import { useState, useCallback, useMemo } from 'react'
+import { useState, useCallback, useMemo, useRef } from 'react'
 import type { StepProps } from '../stepTypes'
 import type { WizardCity } from '@/lib/wizard'
-import { citiesForCountries, POPULAR_CITIES, searchCities } from '@/lib/data/cities'
+import { citiesForCountries, POPULAR_CITIES, searchCities, type WizardCityHit } from '@/lib/data/cities'
 import { countryByName } from '@/lib/data/countries'
 import { TokenSearch, SelectableCard, type TokenItem } from '../WizardKit'
 
 // STEP 2 · "Which cities?"
-// Grid of cities filtered to the countries picked in step 1 (or a global
-// popular set if step 1 was skipped — a city choice then implies its country).
+// Grid of the top cities for the countries picked in step 1 (or a global popular
+// set if step 1 was skipped). Search + grid are BOTH constrained to the chosen
+// countries — selecting China must never surface Chicago or Chiang Mai.
 
 export function StepCities({ draft, update }: StepProps) {
   const [matches, setMatches] = useState<TokenItem[]>([])
+  // Remember the country for each searched city so adding resolves correctly.
+  const hitByName = useRef(new Map<string, WizardCityHit>())
 
   const selectedCountryCodes = useMemo(
     () => draft.countries.map((n) => countryByName(n)?.code).filter(Boolean) as string[],
     [draft.countries],
   )
 
-  // Grid source: cities for chosen countries, else the global popular set.
-  const grid = selectedCountryCodes.length
+  // Grid: chosen countries' top cities, else the global popular set.
+  const grid: WizardCityHit[] = selectedCountryCodes.length
     ? citiesForCountries(selectedCountryCodes)
     : POPULAR_CITIES
 
@@ -39,8 +42,11 @@ export function StepCities({ draft, update }: StepProps) {
   }
 
   const onQuery = useCallback((q: string) => {
-    setMatches(searchCities(q).map((c) => ({ key: c.name, label: `${c.name}`, prefix: undefined })))
-  }, [])
+    // Constrain search to the selected countries (empty = global, step-1 skipped).
+    const hits = searchCities(q, selectedCountryCodes)
+    hitByName.current = new Map(hits.map((h) => [h.name, h]))
+    setMatches(hits.map((h) => ({ key: h.name, label: h.name })))
+  }, [selectedCountryCodes])
 
   const selectedTokens: TokenItem[] = draft.cities.map((c) => ({ key: c.name, label: c.name }))
 
@@ -48,14 +54,13 @@ export function StepCities({ draft, update }: StepProps) {
     <div className="w-full max-w-2xl mx-auto flex flex-col items-center gap-6">
       <div className="w-full max-w-xl">
         <TokenSearch
-          placeholder="Search cities…"
+          placeholder={selectedCountryCodes.length ? 'Search cities in your countries…' : 'Search cities…'}
           selected={selectedTokens}
           suggestions={matches}
           onQuery={onQuery}
           onAdd={(item) => {
-            // Resolve back to a full city (with country) from the search index.
-            const found = searchCities(item.key).find((c) => c.name === item.key)
-            addCity({ name: item.key, country: found?.country ?? '' })
+            const hit = hitByName.current.get(item.key)
+            addCity({ name: item.key, country: hit?.country ?? '' })
           }}
           onRemove={removeCity}
         />

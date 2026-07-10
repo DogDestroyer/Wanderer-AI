@@ -76,6 +76,16 @@ body {
   .wander-pill { animation: none !important; }
 }
 
+/* Subtle pop when a stepper value changes */
+.wizard-pop { animation: wizard-pop 0.18s ease-out; }
+@keyframes wizard-pop {
+  0%   { transform: scale(0.86); opacity: 0.5; }
+  100% { transform: scale(1); opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .wizard-pop { animation: none !important; }
+}
+
 /* ── Leaflet popup overrides (dark) ─────────────────────────────────────────── */
 .leaflet-popup-content-wrapper {
   border-radius: 10px !important;

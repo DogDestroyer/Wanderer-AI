@@ -313,6 +313,15 @@ function buildPreferencesPrompt(prefs: TripPreferences | null | undefined): stri
   if (prefs.partySize && prefs.partyType) {
     lines.push(`- Party: ${prefs.partySize} ${prefs.partySize === 1 ? 'person' : 'people'}, ${prefs.partyType}`)
   }
+  if (prefs.partyType === 'work') {
+    lines.push(
+      '- WORK / BUSINESS TRIP — plan accordingly: prefer hotels in or near the business/financial',
+      '  district with good transit; keep daytime logistics efficient and low-friction (minimal',
+      '  cross-city hops, buffer time between commitments); weight leisure and sightseeing toward',
+      '  evenings and any free blocks; favour reliable, well-reviewed, expensable-style dining',
+      '  (business-appropriate restaurants) over out-of-the-way foodie detours.',
+    )
+  }
   if (prefs.diningStyle !== undefined) {
     lines.push(`- Dining: ${getDiningLabel(prefs.diningStyle)} (${prefs.diningStyle}/100, 0=street food, 100=fine dining)`)
   }

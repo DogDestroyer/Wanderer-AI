@@ -199,9 +199,10 @@ function PartyTypeEditor({ assumption, onApply, onCancel }: EditorProps) {
     { value: 'couple',  label: 'Couple'  },
     { value: 'family',  label: 'Family'  },
     { value: 'friends', label: 'Friends' },
+    { value: 'work',    label: 'Work'    },
   ]
   const [selected, setSelected] = useState<PartyType>(
-    (assumption.value.toLowerCase() as PartyType) in { solo:1, couple:1, family:1, friends:1 }
+    (assumption.value.toLowerCase() as PartyType) in { solo:1, couple:1, family:1, friends:1, work:1 }
       ? assumption.value.toLowerCase() as PartyType
       : 'couple'
   )

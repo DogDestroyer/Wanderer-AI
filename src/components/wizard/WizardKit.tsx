@@ -9,55 +9,41 @@ import { X, Minus, Plus } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 // ─── NumberStepper ────────────────────────────────────────────────────────────
-// Large centred number with − / + steppers. Steppers are disabled until a value
-// exists (per spec); the first tap on either seeds `seed`.
+// Large centred number adjusted ONLY via − / + steppers (no manual text entry).
+// The value always exists (steps that use it seed a sensible default), and the
+// steppers disable at the bounds.
 
 export function NumberStepper({
-  value, onChange, min, max, seed, unit,
+  value, onChange, min, max, unit,
 }: {
-  value: number | null
+  value: number
   onChange: (v: number) => void
   min: number
   max: number
-  seed: number
   unit?: string
 }) {
-  const has = value !== null
-  const dec = () => { if (has) onChange(Math.max(min, (value as number) - 1)) }
-  const inc = () => { if (has) onChange(Math.min(max, (value as number) + 1)) }
+  const atMin = value <= min
+  const atMax = value >= max
+  const dec = () => { if (!atMin) onChange(value - 1) }
+  const inc = () => { if (!atMax) onChange(value + 1) }
 
   return (
-    <div className="flex items-center justify-center gap-5">
-      <StepperButton ariaLabel="Decrease" disabled={!has} onClick={dec}><Minus size={18} /></StepperButton>
+    <div className="flex items-center justify-center gap-6">
+      <StepperButton ariaLabel="Decrease" disabled={atMin} onClick={dec}><Minus size={18} /></StepperButton>
 
       <div className="flex flex-col items-center min-w-[120px]">
-        {has ? (
-          <input
-            type="number"
-            inputMode="numeric"
-            value={value as number}
-            min={min}
-            max={max}
-            onChange={(e) => {
-              const n = parseInt(e.target.value, 10)
-              if (Number.isNaN(n)) return
-              onChange(Math.max(min, Math.min(max, n)))
-            }}
-            className="w-[140px] bg-transparent text-center text-[64px] leading-none font-semibold text-white tabular-nums focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-          />
-        ) : (
-          <button
-            onClick={() => onChange(seed)}
-            className="w-[140px] text-center text-[64px] leading-none font-semibold text-[#333] hover:text-[#555] tabular-nums transition-colors"
-            aria-label="Set a value"
-          >
-            –
-          </button>
-        )}
+        <span
+          key={value}
+          data-testid="stepper-value"
+          className="wizard-pop text-[68px] leading-none font-semibold text-white tabular-nums select-none"
+          aria-live="polite"
+        >
+          {value}
+        </span>
         {unit && <span className="text-[13px] text-[#555] mt-2">{unit}</span>}
       </div>
 
-      <StepperButton ariaLabel="Increase" disabled={!has} onClick={inc}><Plus size={18} /></StepperButton>
+      <StepperButton ariaLabel="Increase" disabled={atMax} onClick={inc}><Plus size={18} /></StepperButton>
     </div>
   )
 }

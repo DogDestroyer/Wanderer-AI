@@ -39,10 +39,10 @@ export interface WizardDraft {
 export const EMPTY_WIZARD_DRAFT: WizardDraft = {
   countries: [],
   cities: [],
-  days: null,
+  days: 7,          // sensible default; the days step is stepper-only
   startDate: null,
   endDate: null,
-  partySize: null,
+  partySize: 3,     // sensible default; the people step is stepper-only
   partyType: null,
   budgetLevel: 50,
   exactAmount: null,
@@ -61,6 +61,11 @@ export function suggestedPartyType(size: number | null): PartyType {
   return 'friends'
 }
 
+// Human phrasing for the generation message (Work reads as a business trip).
+export function describeParty(type: PartyType): string {
+  return type === 'work' ? 'work / business trip' : type
+}
+
 // ─── Date helpers (two-way sync with day count) ───────────────────────────────
 export function daysBetween(start: string, end: string): number {
   const a = new Date(start + 'T00:00:00').getTime()
@@ -71,7 +76,12 @@ export function daysBetween(start: string, end: string): number {
 export function addDays(iso: string, n: number): string {
   const d = new Date(iso + 'T00:00:00')
   d.setDate(d.getDate() + n)
-  return d.toISOString().slice(0, 10)
+  // Format from LOCAL fields — toISOString() would shift the date across the UTC
+  // boundary in non-UTC timezones (e.g. GMT+8), yielding an off-by-one end date.
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
 }
 
 // ─── Which structured fields did the user actually provide? ───────────────────
@@ -123,7 +133,7 @@ export function composeWizardMessage(draft: WizardDraft): string {
   if (where) parts.push(`Plan a trip to ${where}.`)
   else parts.push('Plan me a trip.')
 
-  if (draft.days && draft.days > 0) {
+  if (draft.days && draft.days > 0 && !draft.skipped.includes('days')) {
     parts.push(`It should be ${draft.days} days long.`)
   }
   if (draft.startDate && draft.endDate) {
@@ -132,12 +142,12 @@ export function composeWizardMessage(draft: WizardDraft): string {
     parts.push(`Starting around ${draft.startDate}.`)
   }
 
-  if (draft.partySize && draft.partySize > 0) {
+  if (draft.partySize && draft.partySize > 0 && !draft.skipped.includes('people')) {
     const type = draft.partyType ?? suggestedPartyType(draft.partySize)
     const people = draft.partySize === 1 ? '1 person' : `${draft.partySize} people`
-    parts.push(`For ${people} (${type}).`)
-  } else if (draft.partyType) {
-    parts.push(`For a ${draft.partyType} trip.`)
+    parts.push(`For ${people} (${describeParty(type)}).`)
+  } else if (draft.partyType && !draft.skipped.includes('people')) {
+    parts.push(`For a ${describeParty(draft.partyType)} trip.`)
   }
 
   // Budget

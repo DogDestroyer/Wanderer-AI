@@ -11,19 +11,21 @@ import { cn } from '@/lib/utils'
 export interface FloatingItem { key: string; label: string; prefix?: string }
 
 export function FloatingPills({
-  items, selected, onToggle,
+  items, selected, onToggle, speed = 1,
 }: {
   items: FloatingItem[]
   selected: Set<string>
   onToggle: (key: string) => void
+  /** Drift speed multiplier — higher = livelier (interests step uses ~1.7). */
+  speed?: number
 }) {
   return (
     <div className="flex flex-wrap justify-center gap-2.5 max-w-2xl mx-auto">
       {items.map((item, i) => {
         const isSel = selected.has(item.key)
         // Deterministic per-pill variation (no Math.random — stable across renders).
-        const dur = 6 + (i % 5) * 1.3
-        const delay = (i % 7) * 0.4
+        const dur = (6 + (i % 5) * 1.3) / speed
+        const delay = (i % 7) * 0.4 / speed
         return (
           <button
             key={item.key}

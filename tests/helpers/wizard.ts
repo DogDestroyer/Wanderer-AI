@@ -30,9 +30,11 @@ export async function driveWizardConcrete(
   // Step 2 — city
   await page.getByRole('button', { name: city, exact: true }).click()
   await page.getByRole('button', { name: 'Continue' }).click()
-  // Step 3 — days
-  await page.getByRole('button', { name: 'Set a value' }).click()
-  await page.getByRole('spinbutton').fill(String(days))
+  // Step 3 — days (stepper-only; default 7 → adjust to target)
+  const diff = days - 7
+  for (let i = 0; i < Math.abs(diff); i++) {
+    await page.getByRole('button', { name: diff > 0 ? 'Increase' : 'Decrease' }).click()
+  }
   await page.getByRole('button', { name: 'Continue' }).click()
   // Skip steps 4–7 (dates, people, budget, interests)
   for (let i = 0; i < 4; i++) await page.getByRole('button', { name: 'Skip this step' }).click()

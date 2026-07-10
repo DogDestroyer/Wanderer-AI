@@ -117,12 +117,15 @@ export interface TripBudget {
   currency: string    // ISO currency code
 }
 
-export type PartyType = 'solo' | 'couple' | 'family' | 'friends'
+export type PartyType = 'solo' | 'couple' | 'family' | 'friends' | 'work'
 export type AccommodationType = 'hostel' | 'mid-range' | 'boutique' | 'luxury'
 export type MobilityType = 'full' | 'limited'
 
 export const INTEREST_OPTIONS = [
-  'food', 'nature', 'shopping', 'history', 'nightlife', 'art', 'adventure',
+  'food', 'street food', 'nature', 'beaches', 'hiking', 'history', 'museums',
+  'art', 'architecture', 'nightlife', 'music', 'shopping', 'adventure',
+  'wildlife', 'photography', 'wellness', 'diving', 'road trips',
+  'winter sports', 'backpacking',
 ] as const
 
 /** An exact monetary budget entered by the user — overrides the budgetLevel slider. */

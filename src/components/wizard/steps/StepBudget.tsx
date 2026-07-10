@@ -21,12 +21,14 @@ export function StepBudget({ draft, update }: StepProps) {
   const hasExact = !!(draft.exactAmount && draft.exactAmount > 0)
 
   return (
-    <div className="w-full max-w-md mx-auto flex flex-col gap-7">
+    <div className="w-full max-w-md mx-auto flex flex-col gap-8">
       {/* Slider — de-emphasised when an exact amount is set */}
-      <div className={cn('transition-opacity', hasExact && 'opacity-40 pointer-events-none select-none')}>
-        <div className="flex items-center justify-between mb-2">
-          <span className="text-[13px] font-medium text-[#888]">Budget style</span>
-          <span className="text-[15px] font-semibold text-[#f0f0f0]">{getBudgetLabel(draft.budgetLevel)}</span>
+      <div className={cn('transition-opacity duration-300', hasExact && 'opacity-35 pointer-events-none select-none')}>
+        <div className="flex items-baseline justify-between mb-3">
+          <span className="text-[11px] font-semibold uppercase tracking-widest text-[#555]">Budget style</span>
+          <span key={getBudgetLabel(draft.budgetLevel)} className="wizard-pop text-[22px] font-semibold text-white leading-none">
+            {getBudgetLabel(draft.budgetLevel)}
+          </span>
         </div>
         <input
           type="range"
@@ -34,17 +36,19 @@ export function StepBudget({ draft, update }: StepProps) {
           value={draft.budgetLevel}
           onChange={(e) => update({ budgetLevel: Number(e.target.value) })}
           className="w-full cursor-pointer"
-          style={{ accentColor: '#ffffff', height: '3px' }}
+          style={{ accentColor: '#ffffff', height: '6px' }}
         />
-        <div className="flex justify-between mt-1">
+        <div className="flex justify-between mt-2">
           <span className="text-[11px] text-[#444]">Shoestring</span>
           <span className="text-[11px] text-[#444]">Luxury</span>
         </div>
       </div>
 
       {/* Exact amount (optional) */}
-      <div>
-        <p className="text-[12px] text-[#666] mb-2">Exact budget (optional)</p>
+      <div className={cn('transition-opacity duration-300', !hasExact && 'opacity-90')}>
+        <p className="text-[11px] font-semibold uppercase tracking-widest text-[#555] mb-3">
+          Exact budget <span className="normal-case font-normal text-[#444]">· optional</span>
+        </p>
         <div className="flex items-center gap-2 flex-wrap">
           <input
             type="text"

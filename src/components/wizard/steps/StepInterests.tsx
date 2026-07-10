@@ -43,6 +43,7 @@ export function StepInterests({ draft, update }: StepProps) {
         items={INTEREST_OPTIONS.map((i) => ({ key: i, label: i }))}
         selected={new Set(draft.interests)}
         onToggle={toggle}
+        speed={1.7}
       />
 
       {/* Custom interests */}
