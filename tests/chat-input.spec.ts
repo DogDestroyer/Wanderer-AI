@@ -17,44 +17,13 @@ import { driveWizardToBuild, driveWizardConcrete } from './helpers/wizard'
 // It also dumps every console message, page error, and relevant network request
 // so failing vs passing environments can be compared side by side.
 
-const BASE_URL = process.env.BASE_URL ?? 'http://localhost:3000'
-const DEMO_PASSWORD = process.env.DEMO_PASSWORD ?? ''
+import { BASE_URL, DEMO_PASSWORD, grantBypass, loadApp } from './helpers/app'
+
 // A REAL trip request (not a trivial "test message"): the production bug only
 // manifests on a full itinerary generation, which takes ~45s and is exactly what
-// the serverless function timeout was cutting short. A nonsense prompt would get
-// a quick chat-only reply that never exercises the failing path. Override with
-// CHAT_MESSAGE if needed.
+// the serverless function timeout was cutting short. Override with CHAT_MESSAGE.
 const MESSAGE = process.env.CHAT_MESSAGE ?? '5 days in Tokyo for two — food, temples, mid budget'
-const VERCEL_BYPASS = process.env.VERCEL_BYPASS ?? ''
 
-// Plant Vercel's Deployment-Protection bypass COOKIE for the target origin only.
-// We use the cookie (not a global request header) so the bypass never leaks onto
-// cross-origin calls — e.g. the open-meteo weather API, whose CORS preflight
-// rejects unknown headers and would otherwise spam the console with errors.
-async function grantBypass(page: import('@playwright/test').Page) {
-  if (!VERCEL_BYPASS) return
-  const u = new URL(BASE_URL)
-  u.searchParams.set('x-vercel-protection-bypass', VERCEL_BYPASS)
-  u.searchParams.set('x-vercel-set-bypass-cookie', 'true')
-  await page.goto(u.toString(), { waitUntil: 'domcontentloaded' }).catch(() => {})
-}
-
-// Load /app and get past the password gate (if the target is gated).
-async function loadApp(page: import('@playwright/test').Page) {
-  await grantBypass(page)
-  await page.goto(`${BASE_URL}/app`, { waitUntil: 'domcontentloaded' })
-  if (page.url().includes('/login')) {
-    if (!DEMO_PASSWORD) {
-      throw new Error(
-        `Target ${BASE_URL} is password-gated (redirected to /login) but no DEMO_PASSWORD env var was provided.`,
-      )
-    }
-    await page.fill('input[type="password"]', DEMO_PASSWORD)
-    await page.click('button[type="submit"]')
-    await page.waitForURL('**/app', { timeout: 15_000 })
-  }
-  await expect(page.getByTestId('wizard')).toBeVisible({ timeout: 15_000 })
-}
 
 test('pressing Enter sends the message without reloading the page', async ({ page }) => {
   // ── Collect evidence ────────────────────────────────────────────────────────

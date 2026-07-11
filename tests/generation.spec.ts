@@ -4,27 +4,7 @@ import { test, expect, type Page, type Route } from '@playwright/test'
 // construction sequence is observable: instant scaffold → skeleton (day blocks)
 // → batches (activities) → settle. Every UI beat is driven by a real event.
 
-const BASE_URL = process.env.BASE_URL ?? 'http://localhost:3000'
-const DEMO_PASSWORD = process.env.DEMO_PASSWORD ?? ''
-const VERCEL_BYPASS = process.env.VERCEL_BYPASS ?? ''
-
-async function grantBypass(page: Page) {
-  if (!VERCEL_BYPASS) return
-  const u = new URL(BASE_URL)
-  u.searchParams.set('x-vercel-protection-bypass', VERCEL_BYPASS)
-  u.searchParams.set('x-vercel-set-bypass-cookie', 'true')
-  await page.goto(u.toString(), { waitUntil: 'domcontentloaded' }).catch(() => {})
-}
-async function loadApp(page: Page) {
-  await grantBypass(page)
-  await page.goto(`${BASE_URL}/app`, { waitUntil: 'domcontentloaded' })
-  if (page.url().includes('/login')) {
-    if (!DEMO_PASSWORD) throw new Error(`${BASE_URL} gated but no DEMO_PASSWORD`)
-    await page.fill('input[type="password"]', DEMO_PASSWORD)
-    await page.click('button[type="submit"]')
-    await page.waitForURL('**/app', { timeout: 15_000 })
-  }
-}
+import { loadApp } from './helpers/app'
 
 const DAYS = 10
 const sse = (o: unknown) => `data: ${JSON.stringify(o)}\n\n`

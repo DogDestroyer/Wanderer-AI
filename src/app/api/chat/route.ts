@@ -524,12 +524,11 @@ export async function POST(request: Request): Promise<Response> {
           // and a tighter ceiling trims worst-case output time.
           max_tokens: 24000,
           // Thinking DISABLED deliberately. This is a structured-generation task,
-          // not open-ended reasoning, and we run under Vercel Hobby's hard 60s
-          // function limit. With adaptive thinking on, the model spent ~150s
-          // "thinking" before emitting anything — blowing far past the cap. With
-          // thinking off it generates the itinerary directly in a fast, PREDICTABLE
-          // time that comfortably fits the limit. The detailed system prompt already
-          // encodes the structure the model needs.
+          // not open-ended reasoning. With adaptive thinking on, the model spent
+          // ~150s "thinking" before emitting anything, which starves the stream of
+          // bytes and eats into the 300s maxDuration. With thinking off it
+          // generates the itinerary directly in a fast, PREDICTABLE time. The
+          // detailed system prompt already encodes the structure the model needs.
           thinking: { type: 'disabled' },
           system: systemPrompt,
           messages,

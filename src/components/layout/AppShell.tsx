@@ -59,13 +59,6 @@ export function AppShell() {
     if (isFreshStart && !wizardActive) startWizard()
   }, [isFreshStart, wizardActive, startWizard])
 
-  // Open chat when wandr:focus-chat fires
-  useEffect(() => {
-    function handler() { setChatOpen(true) }
-    document.addEventListener('wandr:focus-chat', handler)
-    return () => document.removeEventListener('wandr:focus-chat', handler)
-  }, [])
-
   // ── Skeleton until localStorage has been read ───────────────────────────────
   if (!hasHydrated) {
     return (

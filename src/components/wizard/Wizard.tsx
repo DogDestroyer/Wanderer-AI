@@ -42,7 +42,6 @@ const META: Record<WizardStepId, { title: string; subtitle?: string }> = {
   budget:    { title: "What's your budget?" },
   interests: { title: 'What are your interests?', subtitle: 'Tap all that apply.' },
   notes:     { title: 'Anything else?' },
-  generate:  { title: '' },
 }
 
 export function Wizard() {
@@ -62,9 +61,8 @@ export function Wizard() {
 
   const stepId = WIZARD_STEPS[step - 1]
   const answered = isStepAnswered(stepId, draft)
-  const isGenerateStep = stepId === 'generate'
   const isNotesStep = stepId === 'notes'
-  const hideFooter = isGenerateStep || isNotesStep
+  const hideFooter = isNotesStep // the notes step owns its own primary controls
 
   // ── Kick off generation (once, from the notes step) ─────────────────────────
   // Starts a LIVE BUILD: hands off directly into the trip view, which constructs
@@ -83,14 +81,13 @@ export function Wizard() {
 
   // ── Navigation ──────────────────────────────────────────────────────────────
   const advance = useCallback(() => {
-    if (isGenerateStep) return
     if (stepId === 'notes') { beginGeneration(); return }
     setWizardStep(step + 1)
-  }, [isGenerateStep, stepId, step, setWizardStep, beginGeneration])
+  }, [stepId, step, setWizardStep, beginGeneration])
 
   const back = useCallback(() => {
-    if (step > 1 && !isGenerateStep) setWizardStep(step - 1)
-  }, [step, isGenerateStep, setWizardStep])
+    if (step > 1) setWizardStep(step - 1)
+  }, [step, setWizardStep])
 
   const skip = useCallback(() => {
     toggleWizardSkip(stepId, true)
@@ -102,14 +99,13 @@ export function Wizard() {
     function onKey(e: KeyboardEvent) {
       const el = e.target as HTMLElement
       const typing = ['INPUT', 'TEXTAREA', 'SELECT'].includes(el.tagName) || el.isContentEditable
-      if (isGenerateStep) return
       if (e.key === 'Enter' && !typing && !isNotesStep) { e.preventDefault(); advance() }
       else if ((e.key === 'ArrowRight') && !typing) { e.preventDefault(); advance() }
       else if ((e.key === 'ArrowLeft' || e.key === 'Backspace') && !typing) { e.preventDefault(); back() }
     }
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
-  }, [advance, back, isGenerateStep, isNotesStep])
+  }, [advance, back, isNotesStep])
 
   const stepProps: StepProps = { draft, update: updateWizardDraft, advance }
 
@@ -123,7 +119,6 @@ export function Wizard() {
       case 'budget':    return <StepBudget {...stepProps} />
       case 'interests': return <StepInterests {...stepProps} />
       case 'notes':     return <StepNotes {...stepProps} />
-      case 'generate':  return null // never rendered — Build hands off to the live trip view
     }
   })()
 
@@ -141,17 +136,17 @@ export function Wizard() {
 
       {/* ── Top chrome ───────────────────────────────────────────────────────── */}
       <div className="flex items-center justify-between px-5 h-14 shrink-0">
-        {step > 1 && !isGenerateStep ? (
+        {step > 1 ? (
           <button onClick={back} aria-label="Back" className="flex items-center justify-center w-9 h-9 rounded-full text-[#888] hover:text-white hover:bg-[#1a1a1a] transition-colors">
             <ArrowLeft size={18} />
           </button>
         ) : <div className="w-9" />}
 
         <span className="text-[11px] font-medium tracking-widest text-[#444] uppercase tabular-nums" data-testid="wizard-progress">
-          {isGenerateStep ? 'Building' : `Step ${step} of ${WIZARD_TOTAL}`}
+          {`Step ${step} of ${WIZARD_TOTAL}`}
         </span>
 
-        {returnTripId && !isGenerateStep ? (
+        {returnTripId ? (
           <button onClick={cancelWizard} aria-label="Close" className="flex items-center justify-center w-9 h-9 rounded-full text-[#888] hover:text-white hover:bg-[#1a1a1a] transition-colors">
             <X size={18} />
           </button>

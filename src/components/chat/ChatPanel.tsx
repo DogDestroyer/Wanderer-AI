@@ -41,13 +41,6 @@ export function ChatPanel({ locked = false }: { locked?: boolean }) {
     requestAnimationFrame(() => { chatInputRef.current?.focus() })
   }, [])
 
-  // Focus when WelcomeScreen / Hero CTA fires
-  useEffect(() => {
-    function handler() { chatInputRef.current?.focus() }
-    document.addEventListener('wandr:focus-chat', handler)
-    return () => document.removeEventListener('wandr:focus-chat', handler)
-  }, [])
-
   // Pre-fill textarea from DayCard rain-warning "Get alternatives →"
   useEffect(() => {
     function handler(e: Event) {

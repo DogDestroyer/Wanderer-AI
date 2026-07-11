@@ -5,31 +5,8 @@ import { test, expect, type Page } from '@playwright/test'
 // Resilient to environments without the key: it asserts correctness when hotels
 // render, and "no crash" when they don't.
 
-const BASE_URL = process.env.BASE_URL ?? 'http://localhost:3000'
-const DEMO_PASSWORD = process.env.DEMO_PASSWORD ?? ''
-const VERCEL_BYPASS = process.env.VERCEL_BYPASS ?? ''
+import { BASE_URL, DEMO_PASSWORD, VERCEL_BYPASS, grantBypass, loadApp } from './helpers/app'
 
-async function grantBypass(page: Page) {
-  if (!VERCEL_BYPASS) return
-  const u = new URL(BASE_URL)
-  u.searchParams.set('x-vercel-protection-bypass', VERCEL_BYPASS)
-  u.searchParams.set('x-vercel-set-bypass-cookie', 'true')
-  await page.goto(u.toString(), { waitUntil: 'domcontentloaded' }).catch(() => {})
-}
-
-async function loadApp(page: Page) {
-  await grantBypass(page)
-  await page.goto(`${BASE_URL}/app`, { waitUntil: 'domcontentloaded' })
-  if (page.url().includes('/login')) {
-    if (!DEMO_PASSWORD) throw new Error(`${BASE_URL} is gated but no DEMO_PASSWORD provided`)
-    await page.fill('input[type="password"]', DEMO_PASSWORD)
-    await page.click('button[type="submit"]')
-    await page.waitForURL('**/app', { timeout: 15_000 })
-  }
-  // Fresh start now opens the new-trip wizard (the hero was removed); this test
-  // seeds a trip and reloads right after, so just confirm the app is up.
-  await expect(page.getByTestId('wizard')).toBeVisible({ timeout: 15_000 })
-}
 
 const SEED = {
   id: 'trip_sgtyo', name: 'Singapore to Tokyo',

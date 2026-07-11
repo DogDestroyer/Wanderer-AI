@@ -2,7 +2,7 @@
 
 import { create } from 'zustand'
 import { persist, createJSONStorage } from 'zustand/middleware'
-import type { TripPlan, Day, Activity, ChatMessage, AgentSuggestion, WeatherForecast, AgentSettings, TripPreferences, TripLiveData, ChecklistItem, ChecklistSection, Reservation, BuildScaffold } from './types'
+import type { TripPlan, Day, Activity, ChatMessage, WeatherForecast, AgentSettings, TripPreferences, TripLiveData, ChecklistItem, ChecklistSection, Reservation, BuildScaffold } from './types'
 import { convertAmount, FALLBACK_RATES, type RatesMap } from './currency'
 import { DEFAULT_AGENT_SETTINGS, DEFAULT_PREFERENCES } from './types'
 import { recalculateDay } from './recalculate'
@@ -148,10 +148,6 @@ interface AppState {
   // ── Weather ──
   updateTripWeather: (tripId: string, weatherByDayId: Record<string, WeatherForecast>) => void
 
-  // ── Suggestions ──
-  dismissSuggestion: (tripId: string, suggestionId: string) => void
-  addSuggestion: (tripId: string, suggestion: AgentSuggestion) => void
-  clearDismissedSuggestions: (tripId: string) => void
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -591,30 +587,6 @@ export const useStore = create<AppState>()(
           }
         }),
 
-      // ── Suggestions ───────────────────────────────────────────────────────
-
-      dismissSuggestion: (tripId, suggestionId) =>
-        set((s) => ({
-          trips: patchTrip(s.trips, tripId, (trip) => ({
-            suggestions: trip.suggestions.map((sg) =>
-              sg.id === suggestionId ? { ...sg, dismissed: true } : sg
-            ),
-          })),
-        })),
-
-      addSuggestion: (tripId, suggestion) =>
-        set((s) => ({
-          trips: patchTrip(s.trips, tripId, (trip) => ({
-            suggestions: [...(trip.suggestions ?? []), suggestion],
-          })),
-        })),
-
-      clearDismissedSuggestions: (tripId) =>
-        set((s) => ({
-          trips: patchTrip(s.trips, tripId, (trip) => ({
-            suggestions: trip.suggestions.filter((sg) => !sg.dismissed),
-          })),
-        })),
     }),
     {
       name: 'wandr-v1',

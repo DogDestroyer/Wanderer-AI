@@ -6,30 +6,10 @@ import { test, expect, type Page, type Route } from '@playwright/test'
 // refinement pass: complete country search, country-filtered cities, stepper-
 // only days/people, computed dates, and the Work party type.
 
-const BASE_URL = process.env.BASE_URL ?? 'http://localhost:3000'
-const DEMO_PASSWORD = process.env.DEMO_PASSWORD ?? ''
-const VERCEL_BYPASS = process.env.VERCEL_BYPASS ?? ''
+import { loadApp } from './helpers/app'
 
 // The floating pills drift forever (CSS animation), so pill clicks use
 // { force: true } to bypass Playwright's stability wait.
-
-async function grantBypass(page: Page) {
-  if (!VERCEL_BYPASS) return
-  const u = new URL(BASE_URL)
-  u.searchParams.set('x-vercel-protection-bypass', VERCEL_BYPASS)
-  u.searchParams.set('x-vercel-set-bypass-cookie', 'true')
-  await page.goto(u.toString(), { waitUntil: 'domcontentloaded' }).catch(() => {})
-}
-async function loadApp(page: Page) {
-  await grantBypass(page)
-  await page.goto(`${BASE_URL}/app`, { waitUntil: 'domcontentloaded' })
-  if (page.url().includes('/login')) {
-    if (!DEMO_PASSWORD) throw new Error(`${BASE_URL} gated but no DEMO_PASSWORD`)
-    await page.fill('input[type="password"]', DEMO_PASSWORD)
-    await page.click('button[type="submit"]')
-    await page.waitForURL('**/app', { timeout: 15_000 })
-  }
-}
 
 const sse = (obj: unknown) => `data: ${JSON.stringify(obj)}\n\n`
 
@@ -211,16 +191,16 @@ test('back navigation preserves answers and a refresh resumes at the same step',
   const japanPill = page.locator('button.wander-pill').filter({ hasText: 'Japan' })
   await japanPill.click({ force: true })
   await page.getByRole('button', { name: 'Continue' }).click()
-  await expect(page.getByTestId('wizard-progress')).toHaveText('Step 2 of 9')
+  await expect(page.getByTestId('wizard-progress')).toHaveText('Step 2 of 8')
   await page.getByRole('button', { name: 'Back' }).click()
   await expect(japanPill).toHaveAttribute('aria-pressed', 'true')
 
   await page.getByRole('button', { name: 'Continue' }).click()
   await page.getByRole('button', { name: 'Continue' }).click()
-  await expect(page.getByTestId('wizard-progress')).toHaveText('Step 3 of 9')
+  await expect(page.getByTestId('wizard-progress')).toHaveText('Step 3 of 8')
   await page.reload({ waitUntil: 'domcontentloaded' })
   await expect(page.getByTestId('wizard')).toBeVisible({ timeout: 15_000 })
-  await expect(page.getByTestId('wizard-progress')).toHaveText('Step 3 of 9')
+  await expect(page.getByTestId('wizard-progress')).toHaveText('Step 3 of 8')
   await page.getByRole('button', { name: 'Back' }).click()
   await page.getByRole('button', { name: 'Back' }).click()
   await expect(page.locator('button.wander-pill').filter({ hasText: 'Japan' })).toHaveAttribute('aria-pressed', 'true')
@@ -275,7 +255,7 @@ test('days step defaults to 7 and only steppers change it (no manual entry)', as
   // Reach the days step by skipping 1 & 2.
   await page.getByRole('button', { name: 'Skip this step' }).click()
   await page.getByRole('button', { name: 'Skip this step' }).click()
-  await expect(page.getByTestId('wizard-progress')).toHaveText('Step 3 of 9')
+  await expect(page.getByTestId('wizard-progress')).toHaveText('Step 3 of 8')
 
   await expect(page.getByTestId('stepper-value')).toHaveText('7')
   // No manual text/number entry on this step.

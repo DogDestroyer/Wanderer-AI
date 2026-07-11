@@ -8,10 +8,10 @@ import type { PartyType, TripPreferences, BuildScaffold, TripAssumption } from '
 import { getBudgetLabel } from './utils'
 
 export const WIZARD_STEPS = [
-  'countries', 'cities', 'days', 'dates', 'people', 'budget', 'interests', 'notes', 'generate',
+  'countries', 'cities', 'days', 'dates', 'people', 'budget', 'interests', 'notes',
 ] as const
 export type WizardStepId = (typeof WIZARD_STEPS)[number]
-export const WIZARD_TOTAL = WIZARD_STEPS.length // 9
+export const WIZARD_TOTAL = WIZARD_STEPS.length // 8 — Build hands off to the live trip view
 
 export interface WizardCity {
   name: string
@@ -233,6 +233,5 @@ export function isStepAnswered(step: WizardStepId, draft: WizardDraft): boolean 
     case 'budget':    return true // slider always has a value
     case 'interests': return draft.interests.length > 0 || draft.customInterests.length > 0
     case 'notes':     return true // free text, optional
-    case 'generate':  return true
   }
 }

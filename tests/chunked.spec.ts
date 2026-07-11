@@ -6,29 +6,8 @@ import { driveWizardToBuild } from './helpers/wizard'
 // fails twice, and we assert the OTHER batches still fill, the failed days show
 // an incomplete state + Resume, and resuming completes them.
 
-const BASE_URL = process.env.BASE_URL ?? 'http://localhost:3000'
-const DEMO_PASSWORD = process.env.DEMO_PASSWORD ?? ''
-const VERCEL_BYPASS = process.env.VERCEL_BYPASS ?? ''
+import { BASE_URL, DEMO_PASSWORD, VERCEL_BYPASS, grantBypass, loadApp } from './helpers/app'
 
-async function grantBypass(page: Page) {
-  if (!VERCEL_BYPASS) return
-  const u = new URL(BASE_URL)
-  u.searchParams.set('x-vercel-protection-bypass', VERCEL_BYPASS)
-  u.searchParams.set('x-vercel-set-bypass-cookie', 'true')
-  await page.goto(u.toString(), { waitUntil: 'domcontentloaded' }).catch(() => {})
-}
-async function loadApp(page: Page) {
-  await grantBypass(page)
-  await page.goto(`${BASE_URL}/app`, { waitUntil: 'domcontentloaded' })
-  if (page.url().includes('/login')) {
-    if (!DEMO_PASSWORD) throw new Error(`${BASE_URL} gated but no DEMO_PASSWORD`)
-    await page.fill('input[type="password"]', DEMO_PASSWORD)
-    await page.click('button[type="submit"]')
-    await page.waitForURL('**/app', { timeout: 15_000 })
-  }
-  // Fresh start now opens the new-trip wizard (the hero was removed).
-  await expect(page.getByTestId('wizard')).toBeVisible({ timeout: 15_000 })
-}
 
 const DAYS = 9
 const sse = (obj: unknown) => `data: ${JSON.stringify(obj)}\n\n`
