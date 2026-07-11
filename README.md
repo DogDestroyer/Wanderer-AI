@@ -1,8 +1,8 @@
-# Wandr — AI Travel Planner
+# Hodo — AI Travel Planner
 
-> A portfolio-quality AI travel planning app. Describe a trip in plain English and get a full day-by-day itinerary in seconds — then drag, drop, and edit it in real time.
+> A portfolio-quality AI travel planning app. Answer a few questions in a step-by-step wizard (or just describe your trip) and watch a full day-by-day itinerary build itself live — then drag, drop, and edit it in real time.
 
-**[→ Live demo](https://wanderer-oklcy299w-testing-wanderer.vercel.app/)**
+**[→ Live demo](https://wanderer-ai.vercel.app/)**
 
 [![Next.js](https://img.shields.io/badge/Next.js-16-black?logo=next.js)](https://nextjs.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5-blue?logo=typescript)](https://www.typescriptlang.org/)
@@ -122,12 +122,14 @@ A few architecture decisions underpin the app. The agent returns **structured JS
 
 ```
 src/
+├── proxy.ts                    # Middleware — login redirect for pages, 401 for API routes
 ├── app/
 │   ├── api/
 │   │   ├── auth/route.ts       # POST /api/auth — validates DEMO_PASSWORD, sets cookie
-│   │   └── chat/route.ts       # POST /api/chat — Anthropic streaming proxy
+│   │   ├── chat/route.ts       # POST /api/chat — Anthropic streaming proxy (rate-limited)
+│   │   ├── enhance/route.ts    # POST /api/enhance — prompt enhancer
+│   │   └── live-prices/route.ts# POST /api/live-prices — liteAPI hotels + Travelpayouts flights
 │   ├── login/page.tsx          # Password gate (only shown when DEMO_PASSWORD is set)
-│   ├── proxy.ts                # Edge Middleware — redirects unauthenticated requests
 │   ├── globals.css             # Tailwind v4 import + design tokens + utility classes
 │   ├── layout.tsx              # Root layout (Geist font, metadata)
 │   └── page.tsx                # Renders <AppShell />
@@ -181,7 +183,7 @@ src/
 ```bash
 # 1. Clone the repo
 git clone https://github.com/DogDestroyer/Wanderer-AI.git
-cd wandr
+cd Wanderer-AI
 
 # 2. Install dependencies
 npm install
@@ -211,13 +213,13 @@ git push -u origin master
 ### 2. Import to Vercel
 
 1. Go to [vercel.com/new](https://vercel.com/new) → **Import Git Repository**
-2. Select your `wandr` repo — Vercel auto-detects Next.js, no settings to change
+2. Select your `Wanderer-AI` repo — Vercel auto-detects Next.js, no settings to change
 3. Expand **Environment Variables** and add:
 
 | Variable | Value |
 |---|---|
 | `ANTHROPIC_API_KEY` | `sk-ant-...` (your real key) |
-| `DEMO_PASSWORD` | Any passcode you want (e.g. `wandr2024`) |
+| `DEMO_PASSWORD` | Any passcode you want (e.g. `hodo2026`) |
 
 4. Click **Deploy**
 
@@ -225,16 +227,22 @@ Vercel runs `npm run build` (which includes the prebuild script) and deploys aut
 
 ### 3. Sharing the URL
 
-Anyone who visits your Vercel URL sees a password prompt. They enter the `DEMO_PASSWORD` you set and the full app unlocks for 30 days via an `HttpOnly` cookie.
+Anyone who visits your Vercel URL sees a password prompt. They enter the `DEMO_PASSWORD` you set and the full app unlocks for 30 days via an `HttpOnly` cookie. The gate covers both the pages **and** the API routes (`/api/*` return `401` without the cookie), and every AI/provider endpoint is additionally rate-limited per IP — so a leaked URL can't silently burn your Anthropic credits.
 
 ---
 
 ## Environment Variables
 
+Set these in `.env.local` (local dev) and in Vercel → Settings → Environment Variables for **Production + Preview + Development**:
+
 | Variable | Required | Description |
 |---|---|---|
-| `ANTHROPIC_API_KEY` | ✅ Yes | Your Anthropic API key — [console.anthropic.com](https://console.anthropic.com) |
-| `DEMO_PASSWORD` | ⬜ Optional | Password gate for the public deployment. Leave unset in local dev. |
+| `ANTHROPIC_API_KEY` | ✅ Yes | Your Anthropic API key — [console.anthropic.com](https://console.anthropic.com) (API credits, separate from a Claude subscription) |
+| `DEMO_PASSWORD` | ⬜ Optional | Password gate for the public deployment (pages **and** API routes). Leave unset in local dev. |
+| `LITEAPI_API_KEY` | ⬜ Optional | Live hotel nightly rates via [liteAPI](https://liteapi.travel). Unset → hotels fall back to AI estimates. |
+| `TRAVELPAYOUTS_TOKEN` | ⬜ Optional | Indicative flight prices via [Travelpayouts](https://travelpayouts.com) (Aviasales data). Unset → flights fall back to AI estimates. |
+| `TRAVELPAYOUTS_MARKER` | ⬜ Optional | Travelpayouts affiliate id, used in booking deep links. |
+| `PLANNER_MODEL` / `QUICK_MODEL` | ⬜ Optional | Override the model tiers (defaults: Sonnet 4.6 for full generation, Haiku 4.5 for quick edits). |
 
 ---
 
@@ -250,7 +258,13 @@ Built milestone-by-milestone with [Claude Code](https://claude.ai/code):
 | 8 | Live weather forecasts (Open-Meteo) | `45f66ca` |
 | 9 | Pace & budget sliders with AI re-planning | `19db79c` |
 | 10 | Polish — animations, toasts, micro-interactions | `123f3c4` |
-| 11 | Deploy to Vercel + README | *(this commit)* |
+| 11 | Deploy to Vercel + README | `ac8c77c` |
+| 12 | Chunked skeleton-first generation + heartbeats (prod timeout fix) | `61c6a54` |
+| 13 | Live hotel/flight prices behind a provider-agnostic wrapper | `0ae3f7c` |
+| 14 | Export, day titles, Checklist & Reservations tabs | `b6f18b9` |
+| 15 | Step-by-step planning wizard replaces the chat hero | `c5598ba` |
+| 16 | Live generation experience — the trip view constructs itself | `33ea548` |
+| 17 | Security & quality pass from a full project audit (`REVIEW.md`) | *(current)* |
 
 ---
 

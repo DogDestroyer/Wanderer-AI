@@ -23,7 +23,7 @@ Hodo is a portfolio-quality AI travel planner (Next.js 16 App Router, React 19, 
 ## Environment / providers
 
 Server-side only, in `.env.local` (git-ignored) and Vercel **Settings → Environment Variables** for **Production + Preview + Development** (the recurring gotcha: Preview left unticked → prod key missing):
-- `ANTHROPIC_API_KEY` (required — API credits, NOT the Claude subscription), `DEMO_PASSWORD` (optional password gate, prod only), `LITEAPI_API_KEY` (hotels), `TRAVELPAYOUTS_TOKEN` + `TRAVELPAYOUTS_MARKER` (flights), optional `PLANNER_MODEL` / `QUICK_MODEL`.
+- `ANTHROPIC_API_KEY` (required — API credits, NOT the Claude subscription), `DEMO_PASSWORD` (optional password gate — covers pages AND `/api/*`, which return 401 JSON without the cookie), `LITEAPI_API_KEY` (hotels), `TRAVELPAYOUTS_TOKEN` + `TRAVELPAYOUTS_MARKER` (flights), optional `PLANNER_MODEL` / `QUICK_MODEL`. All AI/provider routes are per-IP rate-limited (`src/lib/rateLimit.ts`).
 - Vercel: **Deployment Protection** is on (preview URLs 401 → tests use a Protection-Bypass token via cookie); **Fluid Compute** must be enabled for the 300s `maxDuration`. Non-AI, no key: Open-Meteo (weather), OpenStreetMap (map), Frankfurter (rates).
 
 ## Known patterns
