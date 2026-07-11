@@ -42,6 +42,17 @@ async function seed(page: Page) {
 async function openFreshContext(browser: Browser, url: string): Promise<Page> {
   const ctx = await browser.newContext() // fresh profile — no cookies/localStorage
   const p = await ctx.newPage()
+  // Vercel DEPLOYMENT PROTECTION (infra, not app auth) walls hash-URL deploys —
+  // plant the bypass cookie for the shared link's origin. Real recipients use
+  // the public production domain, which has no such wall.
+  const bypass = process.env.VERCEL_BYPASS ?? ''
+  if (bypass) {
+    const u = new URL(url)
+    u.pathname = '/'
+    u.searchParams.set('x-vercel-protection-bypass', bypass)
+    u.searchParams.set('x-vercel-set-bypass-cookie', 'true')
+    await p.goto(u.toString(), { waitUntil: 'domcontentloaded' }).catch(() => {})
+  }
   await p.goto(url, { waitUntil: 'domcontentloaded' })
   return p
 }

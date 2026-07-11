@@ -1,6 +1,6 @@
 import type { TripPlan } from '@/lib/types'
 import { rateLimit, clientIp, tooManyRequests } from '@/lib/rateLimit'
-import { newShareId, putSnapshot, SHARE_MAX_BYTES } from '@/lib/shareStore'
+import { newShareId, putSnapshot, shareStoreIsDurable, SHARE_MAX_BYTES } from '@/lib/shareStore'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -12,6 +12,13 @@ export const dynamic = 'force-dynamic'
 export async function POST(request: Request): Promise<Response> {
   const rl = rateLimit(`share:${clientIp(request)}`, 5, 10 * 60_000)
   if (!rl.ok) return tooManyRequests(rl.retryAfterMs)
+
+  // On Vercel the in-memory fallback would "succeed" on this instance but the
+  // recipient's request lands on another — a dead link masquerading as a
+  // success. Serverless without a durable store must fail honestly.
+  if (!shareStoreIsDurable() && process.env.VERCEL) {
+    return Response.json({ error: 'Sharing is not configured on this deployment (enable Vercel Blob).' }, { status: 503 })
+  }
 
   const raw = await request.text()
   if (raw.length > SHARE_MAX_BYTES) {
