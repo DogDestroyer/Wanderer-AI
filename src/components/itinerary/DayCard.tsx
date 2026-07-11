@@ -7,6 +7,7 @@ import { DollarSign, Pencil, Check, X, RotateCw, AlertTriangle } from 'lucide-re
 import { motion, useReducedMotion } from 'framer-motion'
 import { Typewriter, CountUp } from './BuildStatus'
 import { REVEAL_EASE } from '@/lib/revealTiming'
+import { DayQuickMenu } from './DayQuickMenu'
 import type { Day } from '@/lib/types'
 import { cn, formatCurrency, getWeatherEmoji, isBadWeather } from '@/lib/utils'
 import { calculateDayBudgetConverted, detectTimingConflicts } from '@/lib/recalculate'
@@ -31,6 +32,12 @@ interface DayCardProps {
 
 export function DayCard({ day, index, tripId, tripCurrency, isDraggingAny, rates = FALLBACK_RATES, showLocalPrices, planning, incomplete, building, failed }: DayCardProps) {
   const { activities, weather, dayNotes } = day
+
+  // A quick action is reworking THIS day: subtle in-progress state on the card
+  // while the rest of the app stays fully interactive.
+  const quickActionDayId = useStore((s) => s.quickActionDayId)
+  const isGenerating = useStore((s) => s.isGenerating)
+  const processing = quickActionDayId === day.id && isGenerating
 
   const setDayTitle = useStore((s) => s.setDayTitle)
   const dayTotal = calculateDayBudgetConverted(activities, tripCurrency, rates)
@@ -116,6 +123,9 @@ export function DayCard({ day, index, tripId, tripCurrency, isDraggingAny, rates
         </div>
 
         <div className="flex items-center gap-2.5">
+          {/* Day quick actions (⋯) — disabled during a build or while processing */}
+          <DayQuickMenu tripId={tripId} dayId={day.id} dayNumber={index + 1} disabled={!!building || processing} />
+
           {/* Weather chip */}
           {weather ? (
             <div
@@ -147,7 +157,12 @@ export function DayCard({ day, index, tripId, tripCurrency, isDraggingAny, rates
       </div>
 
       {/* ── Activities ─────────────────────────────────────────────────────── */}
-      <div ref={setNodeRef}>
+      {/* While a quick action reworks this day: shimmer sweep + read-only, the
+          rest of the app stays fully interactive. */}
+      <div ref={setNodeRef} className={cn(processing && 'relative pointer-events-none')} data-processing={processing ? 'true' : 'false'}>
+        {processing && (
+          <div className="processing-overlay z-10" aria-hidden data-testid="day-processing" />
+        )}
         {activities.length === 0 ? (
           <div
             className={cn(

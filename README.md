@@ -24,6 +24,8 @@
 | 🌤️ **Live weather forecasts** | Open-Meteo fetches a 16-day forecast for the trip's location. Each day card shows high/low temps + precipitation. Outdoor activities on rainy days trigger an inline swap suggestion. |
 | 🎚️ **Pace & budget sliders** | Adjust trip pace (relaxed → packed) and budget style (shoestring → luxury) — the AI re-plans the entire trip around your preferences. |
 | 🔒 **Activity locking** | Lock any activity before asking the AI to regenerate. Locked items are never removed or moved. |
+| ⋯ **Day quick actions** | One tap per day: regenerate, make it cheaper, make it more relaxed, or ask for one extra suggestion — routed through the same AI pipeline (and undoable). |
+| 🔗 **Read-only share links** | Share an immutable snapshot of any trip at `/t/{id}` — clean public page with itinerary, budget, map, booking links and OG previews. No login needed to view. |
 | 🍞 **Toast notifications** | Framer Motion–animated toasts confirm actions (re-plan triggered, trip saved, etc.). |
 
 ---
@@ -244,6 +246,7 @@ Set these in `.env.local` (local dev) and in Vercel → Settings → Environment
 | `TRAVELPAYOUTS_TOKEN` | ⬜ Optional | Indicative flight prices via [Travelpayouts](https://travelpayouts.com) (Aviasales data). Unset → flights fall back to AI estimates. |
 | `TRAVELPAYOUTS_MARKER` | ⬜ Optional | Travelpayouts affiliate id, used in booking deep links. |
 | `PLANNER_MODEL` / `QUICK_MODEL` | ⬜ Optional | Override the model tiers (defaults: Sonnet 4.6 for full generation, Haiku 4.5 for quick edits). |
+| `BLOB_READ_WRITE_TOKEN` | ⬜ Optional | Powers read-only share links (`/t/{id}`). Auto-provisioned when you enable **Blob** on the Vercel project (Storage → Create → Blob). Unset → sharing is disabled gracefully (local dev uses an in-memory store). |
 
 ---
 

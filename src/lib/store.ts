@@ -109,6 +109,12 @@ interface AppState {
   guidanceSeen: boolean
   setGuidanceSeen: () => void
 
+  // ── Day quick actions (transient UI state) ──
+  /** Day currently being reworked by a quick action — its card shows an
+   *  in-progress state while the rest of the app stays interactive. */
+  quickActionDayId: string | null
+  setQuickActionDayId: (dayId: string | null) => void
+
   // ── Trip CRUD ──
   createTrip: (trip: TripPlan) => void
   updateTrip: (tripId: string, patch: Partial<TripPlan>) => void
@@ -361,6 +367,9 @@ export const useStore = create<AppState>()(
 
       guidanceSeen: false,
       setGuidanceSeen: () => set({ guidanceSeen: true }),
+
+      quickActionDayId: null,
+      setQuickActionDayId: (dayId) => set({ quickActionDayId: dayId }),
 
       // ── Trip CRUD ──────────────────────────────────────────────────────────
 

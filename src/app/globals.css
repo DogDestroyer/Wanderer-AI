@@ -101,6 +101,27 @@ body {
 }
 @keyframes build-sweep { 100% { transform: translateX(100%); } }
 
+/* Quick-action processing overlay: dark wash + the same sweep, stretched over
+   the day's activities. (Not .build-shimmer — that class is a standalone block
+   whose position:relative would defeat absolute positioning.) */
+.processing-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(10, 10, 10, 0.55);
+  overflow: hidden;
+}
+.processing-overlay::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.05), transparent);
+  animation: build-sweep 1.4s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .processing-overlay::after { animation: none; display: none; }
+}
+
 /* Soft pulse for the live status dot */
 .build-pulse { animation: build-pulse 1.6s ease-in-out infinite; }
 @keyframes build-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }

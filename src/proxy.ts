@@ -12,8 +12,10 @@ export function proxy(request: NextRequest) {
 
   const { pathname } = request.nextUrl
 
-  // Always allow: landing page, login page, and the auth endpoint itself.
-  if (pathname === '/' || pathname === '/login' || pathname === '/api/auth') {
+  // Always allow: landing page, login page, the auth endpoint, and PUBLIC
+  // shared-trip pages (/t/{id} — recipients don't have the passcode; the ids
+  // are unguessable and the pages are read-only).
+  if (pathname === '/' || pathname === '/login' || pathname === '/api/auth' || pathname.startsWith('/t/')) {
     return NextResponse.next()
   }
 

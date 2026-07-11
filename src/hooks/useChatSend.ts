@@ -56,10 +56,15 @@ export function useChatSend() {
 
     // Undo entry BEFORE the mutation lands — labelled from what it touched.
     if (capture && snapshotActiveTripId && action !== 'create_trip' && action !== 'create' && action !== 'chat-only') {
-      const dayCount = patch?.days?.length ?? 0
+      const patchedIds = (patch?.days ?? []).map((d) => d.id)
+      const tripNow = useStore.getState().trips[snapshotActiveTripId]
+      const dayNums = patchedIds
+        .map((id) => (tripNow?.days.findIndex((d) => d.id === id) ?? -1) + 1)
+        .filter((n) => n > 0)
       const label =
         action === 'replace_trip' ? 'AI rebuilt the plan'
-        : dayCount > 0 ? `AI updated ${dayCount === 1 ? 'a day' : `${dayCount} days`}`
+        : dayNums.length === 1 ? `AI updated Day ${dayNums[0]}`
+        : dayNums.length > 1 ? `AI updated ${dayNums.length} days`
         : 'AI updated the trip'
       useStore.getState().captureHistory(snapshotActiveTripId, label)
       // Discovery surface: agent patches are large mutations → offer instant undo.

@@ -118,7 +118,7 @@ test('drag, edit, delete, agent patch → undo ×4 exact restoration → redo ×
   }
   await page.locator('textarea').first().fill('replace day 2 with a kaiseki dinner')
   await page.keyboard.press('Enter')
-  await expect(page.getByText('AI updated a day')).toBeVisible({ timeout: 15_000 })
+  await expect(page.getByText('AI updated Day 2')).toBeVisible({ timeout: 15_000 })
   const s4 = await tripJson(page)
   expect(JSON.parse(s4).days[1].activities[0].title).toBe('Kaiseki Dinner')
   await page.getByRole('button', { name: 'Close' }).click() // close chat (its textarea would swallow Ctrl+Z)
@@ -155,10 +155,10 @@ test('drag, edit, delete, agent patch → undo ×4 exact restoration → redo ×
   await titleInput.press('Escape')
 
   // ── Header buttons: tooltips carry labels; undo via button works too ────────
-  await expect(page.getByTestId('undo-button')).toHaveAttribute('title', /Undo: AI updated a day/)
+  await expect(page.getByTestId('undo-button')).toHaveAttribute('title', /Undo: AI updated Day 2/)
   await page.getByTestId('undo-button').click()
   await expect.poll(() => tripJson(page)).toBe(s3)
-  await expect(page.getByTestId('redo-button')).toHaveAttribute('title', /Redo: AI updated a day/)
+  await expect(page.getByTestId('redo-button')).toHaveAttribute('title', /Redo: AI updated Day 2/)
   await page.getByTestId('redo-button').click()
   await expect.poll(() => tripJson(page)).toBe(s4)
 

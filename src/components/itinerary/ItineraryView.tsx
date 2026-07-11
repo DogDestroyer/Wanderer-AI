@@ -19,7 +19,7 @@ import {
   type Modifier,
 } from '@dnd-kit/core'
 import { arrayMove } from '@dnd-kit/sortable'
-import { MapPin, Calendar, Gauge, Star, SlidersHorizontal, AlertTriangle, ChevronDown, Undo2, Redo2 } from 'lucide-react'
+import { MapPin, Calendar, Gauge, Star, SlidersHorizontal, AlertTriangle, ChevronDown, Undo2, Redo2, Share2 } from 'lucide-react'
 import type { TripPlan, Day, Activity } from '@/lib/types'
 import { useStore } from '@/lib/store'
 import {
@@ -107,6 +107,16 @@ export function ItineraryView({ trip, building }: ItineraryViewProps) {
     }
     return out
   }, [building, localDays, reveal.revealed, reveal.visibleActs])
+
+  // Day quick actions: clear the per-day processing marker when the pipeline
+  // FINISHES (true→false transition only — the marker is set a beat before
+  // isGenerating flips true, so clearing on any false would zap it instantly).
+  const setQuickActionDayId = useStore((s) => s.setQuickActionDayId)
+  const prevGeneratingRef = useRef(false)
+  useEffect(() => {
+    if (prevGeneratingRef.current && !isGenerating) setQuickActionDayId(null)
+    prevGeneratingRef.current = isGenerating
+  }, [isGenerating, setQuickActionDayId])
 
   // After a build settles we switch to the normal render path — remember it so
   // the settled days don't replay their entrance (the "settle" must be subtle,
@@ -280,6 +290,7 @@ export function ItineraryView({ trip, building }: ItineraryViewProps) {
           </div>
           <div className="flex items-center gap-2 shrink-0">
             {!building && <UndoRedoButtons tripId={trip.id} />}
+            {!building && <ShareButton trip={trip} />}
             <ExportMenu trip={trip} rates={rates} />
             {preferences && (
               <button
@@ -584,6 +595,49 @@ export function ItineraryView({ trip, building }: ItineraryViewProps) {
         </div>
       )}
     </div>
+  )
+}
+
+// ─── ShareButton ──────────────────────────────────────────────────────────────
+// Creates an IMMUTABLE snapshot of the trip via /api/share and copies the
+// public /t/{id} link. Sharing again after edits creates a NEW link.
+
+function ShareButton({ trip }: { trip: TripPlan }) {
+  const [busy, setBusy] = useState(false)
+
+  async function share() {
+    if (busy) return
+    setBusy(true)
+    try {
+      const res = await fetch('/api/share', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(trip),
+      })
+      if (res.status === 429) { showToast({ message: 'Too many links created — try again in a few minutes.', type: 'warning' }); return }
+      if (!res.ok) { showToast({ message: 'Sharing isn’t available right now.', type: 'warning' }); return }
+      const { id } = await res.json()
+      const url = `${window.location.origin}/t/${id}`
+      await navigator.clipboard.writeText(url).catch(() => {})
+      showToast({ message: 'Link copied — anyone can view this trip', type: 'success' })
+    } catch {
+      showToast({ message: 'Could not create the share link.', type: 'warning' })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <button
+      onClick={share}
+      disabled={busy}
+      title="Share a read-only link"
+      aria-label="Share trip"
+      data-testid="share-button"
+      className="w-8 h-8 rounded-lg flex items-center justify-center bg-[#1a1a1a] text-[#555] border border-[#2a2a2a] hover:text-[#f0f0f0] hover:border-[#444] transition-colors disabled:opacity-50"
+    >
+      <Share2 size={14} />
+    </button>
   )
 }
 
