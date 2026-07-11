@@ -1,6 +1,6 @@
 # Hodo — AI Travel Planner
 
-> A portfolio-quality AI travel planning app. Answer a few questions in a step-by-step wizard (or just describe your trip) and watch a full day-by-day itinerary build itself live — then drag, drop, and edit it in real time.
+> A portfolio-quality AI travel planning app covering the whole journey — **plan → refine → book → travel**. Answer a few questions in a step-by-step wizard (or just describe your trip), watch a full day-by-day itinerary build itself live, refine it with drag & drop and AI edits, work through an auto-derived booking checklist, then open Day-of mode on your phone while you're actually there.
 
 **[→ Live demo](https://wanderer-ai.vercel.app/)**
 
@@ -26,6 +26,8 @@
 | 🔒 **Activity locking** | Lock any activity before asking the AI to regenerate. Locked items are never removed or moved. |
 | ⋯ **Day quick actions** | One tap per day: regenerate, make it cheaper, make it more relaxed, or ask for one extra suggestion — routed through the same AI pipeline (and undoable). |
 | 🔗 **Read-only share links** | Share an immutable snapshot of any trip at `/t/{id}` — clean public page with itinerary, budget, map, booking links and OG previews. No login needed to view. |
+| 🧳 **Book this trip** | A booking checklist derived from the plan itself: flight legs, one hotel stay per city (with nights + prefilled dates), and only the activities that actually need reservations. Each row carries an indicative price and a booking link; "Mark as booked" records the real price + confirmation number as a Reservation — budget actuals and itinerary badges update automatically. |
+| 📱 **Day-of travel mode** | When today falls inside your trip dates, a "Today" tab takes over: current/next activity with a live countdown, price in the local currency (what you hand the cashier), one-tap Google Maps directions, mark-as-done with a running remaining-today budget, and your confirmation numbers inline. Mobile-first and works offline from saved data. |
 | 🍞 **Toast notifications** | Framer Motion–animated toasts confirm actions (re-plan triggered, trip saved, etc.). |
 
 ---
@@ -268,7 +270,11 @@ Built milestone-by-milestone with [Claude Code](https://claude.ai/code):
 | 14 | Export, day titles, Checklist & Reservations tabs | `b6f18b9` |
 | 15 | Step-by-step planning wizard replaces the chat hero | `c5598ba` |
 | 16 | Live generation experience — the trip view constructs itself | `33ea548` |
-| 17 | Security & quality pass from a full project audit (`REVIEW.md`) | *(current)* |
+| 17 | Security & quality pass from a full project audit (`REVIEW.md`) | `9bcc57a` |
+| 18 | Sequential animated generation reveal | `ce23802` |
+| 19 | Undo/redo + post-build coach marks | `8ebf47f` |
+| 20 | Day quick actions + read-only share links | `0f4eda7` |
+| 21 | "Book this trip" stage + Day-of travel mode | *(current)* |
 
 ---
 

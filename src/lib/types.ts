@@ -270,6 +270,8 @@ export interface TripPlan {
   liveData?: TripLiveData         // cached live flight + hotel prices
   checklist?: ChecklistItem[]     // per-trip checklist (feature 3)
   reservations?: Reservation[]    // confirmed bookings (feature 4)
+  bookingStatus?: Record<string, 'booked' | 'skipped'>  // booking-view rows, keyed by stable row key
+  dayOfDone?: string[]            // day-of mode: activity ids ticked "done" (visual only, undoable)
   coverImageUrl?: string
   createdAt: string
   updatedAt: string

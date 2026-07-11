@@ -42,6 +42,9 @@ import { useRevealSequencer } from '@/hooks/useRevealSequencer'
 import { REVEAL_EASE, REVEAL_TIMING } from '@/lib/revealTiming'
 import { useReducedMotion } from 'framer-motion'
 import { BudgetPanel } from './BudgetPanel'
+import { BookingPanel } from './BookingPanel'
+import { TodayPanel } from './TodayPanel'
+import { isOnTrip } from '@/lib/dayOf'
 import { LiveTravelPanel } from './LiveTravelPanel'
 import { ChecklistPanel } from './ChecklistPanel'
 import { ReservationsPanel } from './ReservationsPanel'
@@ -86,7 +89,7 @@ export function ItineraryView({ trip, building }: ItineraryViewProps) {
   // Live flight + hotel prices (cached on the trip; refetched only on param change)
   const { loading: liveLoading, refresh: refreshLive } = useLivePrices(trip)
 
-  const [activeTab, setActiveTab] = useState<'itinerary' | 'budget' | 'checklist' | 'reservations' | 'map'>('itinerary')
+  const [activeTab, setActiveTab] = useState<'itinerary' | 'budget' | 'checklist' | 'reservations' | 'map' | 'book' | 'today'>('itinerary')
   const [showSliders, setShowSliders] = useState(false)
   const [localDays, setLocalDays] = useState<Day[]>(trip.days)
   const [activeDragId, setActiveDragId] = useState<string | null>(null)
@@ -275,6 +278,9 @@ export function ItineraryView({ trip, building }: ItineraryViewProps) {
   // Detect probable currency error: converted total > 5× the stated cap
   const hasCurrencyError = capSet && spent > 5 * budget.cap
 
+  // Day-of mode: today falls within the trip's dates.
+  const onTrip = isOnTrip(trip)
+
   return (
     <div className="flex flex-col h-full bg-[#0a0a0a]">
 
@@ -289,6 +295,22 @@ export function ItineraryView({ trip, building }: ItineraryViewProps) {
             </div>
           </div>
           <div className="flex items-center gap-2 shrink-0">
+            {!building && (
+              <button
+                onClick={() => setActiveTab('book')}
+                data-testid="book-trip-button"
+                className={cn(
+                  'px-3 h-8 rounded-lg text-[12px] font-medium border transition-colors',
+                  activeTab === 'book'
+                    ? 'bg-white text-black border-white'
+                    : 'bg-[#1a1a1a] text-[#888] border-[#2a2a2a] hover:text-[#f0f0f0] hover:border-[#444]',
+                )}
+              >
+                {/* Shorter label on phones so the trip title keeps its room. */}
+                <span className="hidden sm:inline">Book this trip</span>
+                <span className="sm:hidden">Book</span>
+              </button>
+            )}
             {!building && <UndoRedoButtons tripId={trip.id} />}
             {!building && <ShareButton trip={trip} />}
             <ExportMenu trip={trip} rates={rates} />
@@ -440,9 +462,28 @@ export function ItineraryView({ trip, building }: ItineraryViewProps) {
         </div>
       )}
 
+      {/* ── On-trip banner ───────────────────────────────────────────────────── */}
+      {onTrip && activeTab !== 'today' && !building && (
+        <div className="flex-shrink-0 px-6 py-2.5 bg-[#0d1a12] border-b border-[#1f4030] flex items-center justify-between gap-3" data-testid="on-trip-banner">
+          <p className="text-[12px] text-[#5fd39a] font-medium">✈ You&apos;re on this trip</p>
+          <button
+            onClick={() => setActiveTab('today')}
+            className="shrink-0 text-[12px] font-semibold text-black bg-[#3eb87a] hover:bg-[#4dd88f] px-3 py-1.5 rounded-lg transition-colors"
+          >
+            Open today&apos;s plan →
+          </button>
+        </div>
+      )}
+
       {/* ── Tabs ─────────────────────────────────────────────────────────────── */}
       <div className="flex-shrink-0 border-b border-[#1f1f1f] px-6">
         <div className="flex gap-0 overflow-x-auto scrollbar-none">
+          {/* Day-of mode leads the row while travelling; reachable anytime. */}
+          {onTrip && (
+            <TabButton active={activeTab === 'today'} onClick={() => setActiveTab('today')}>
+              Today
+            </TabButton>
+          )}
           <TabButton active={activeTab === 'itinerary'} onClick={() => setActiveTab('itinerary')}>
             Itinerary
           </TabButton>
@@ -458,8 +499,21 @@ export function ItineraryView({ trip, building }: ItineraryViewProps) {
           <TabButton active={activeTab === 'map'} onClick={() => setActiveTab('map')}>
             Map
           </TabButton>
+          <TabButton active={activeTab === 'book'} onClick={() => setActiveTab('book')}>
+            Book
+          </TabButton>
+          {/* Off-trip: Today still reachable as a preview, tucked at the end. */}
+          {!onTrip && (
+            <TabButton active={activeTab === 'today'} onClick={() => setActiveTab('today')}>
+              Today
+            </TabButton>
+          )}
         </div>
       </div>
+
+      {/* ── Booking + Day-of panels ──────────────────────────────────────────── */}
+      {activeTab === 'book' && <BookingPanel trip={trip} rates={rates} />}
+      {activeTab === 'today' && <TodayPanel trip={trip} rates={rates} />}
 
       {/* ── Budget panel ─────────────────────────────────────────────────────── */}
       {activeTab === 'budget' && <BudgetPanel trip={trip} rates={rates} />}

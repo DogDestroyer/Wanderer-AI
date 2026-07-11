@@ -109,6 +109,15 @@ interface AppState {
   guidanceSeen: boolean
   setGuidanceSeen: () => void
 
+  // ── Booking view + Day-of mode ──
+  /** Mark a booking row booked in ONE undoable gesture: sets the row status and
+   *  (optionally) creates the linked Reservation via the existing machinery. */
+  markBooked: (tripId: string, rowKey: string, label: string, reservation?: Reservation) => void
+  /** Skip / un-set a booking row (null clears back to "Not booked"). */
+  setBookingRowStatus: (tripId: string, rowKey: string, status: 'skipped' | null, label: string) => void
+  /** Day-of: toggle an activity's visual "done" tick (undoable, plan untouched). */
+  toggleDayOfDone: (tripId: string, activityId: string, title: string) => void
+
   // ── Day quick actions (transient UI state) ──
   /** Day currently being reworked by a quick action — its card shows an
    *  in-progress state while the rest of the app stays interactive. */
@@ -370,6 +379,42 @@ export const useStore = create<AppState>()(
 
       quickActionDayId: null,
       setQuickActionDayId: (dayId) => set({ quickActionDayId: dayId }),
+
+      // ── Booking view + Day-of mode ───────────────────────────────────────────
+
+      markBooked: (tripId, rowKey, label, reservation) =>
+        set((s) => ({
+          ...capture(s, tripId, `Booked ${label}`),
+          trips: patchTrip(s.trips, tripId, (trip) => ({
+            bookingStatus: { ...(trip.bookingStatus ?? {}), [rowKey]: 'booked' as const },
+            ...(reservation ? { reservations: [...(trip.reservations ?? []), reservation] } : {}),
+          })),
+        })),
+
+      setBookingRowStatus: (tripId, rowKey, status, label) =>
+        set((s) => ({
+          ...capture(s, tripId, status === 'skipped' ? `Skipped ${label}` : `Reset ${label}`),
+          trips: patchTrip(s.trips, tripId, (trip) => {
+            const next = { ...(trip.bookingStatus ?? {}) }
+            if (status === null) delete next[rowKey]
+            else next[rowKey] = status
+            return { bookingStatus: next }
+          }),
+        })),
+
+      toggleDayOfDone: (tripId, activityId, title) =>
+        set((s) => {
+          const done = s.trips[tripId]?.dayOfDone ?? []
+          const isDone = done.includes(activityId)
+          return {
+            ...capture(s, tripId, isDone ? `Unmarked ${title}` : `Marked ${title} done`),
+            trips: patchTrip(s.trips, tripId, (trip) => ({
+              dayOfDone: isDone
+                ? (trip.dayOfDone ?? []).filter((id) => id !== activityId)
+                : [...(trip.dayOfDone ?? []), activityId],
+            })),
+          }
+        }),
 
       // ── Trip CRUD ──────────────────────────────────────────────────────────
 
