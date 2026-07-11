@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { motion } from 'framer-motion'
 import { AlertTriangle, RotateCw } from 'lucide-react'
 import { useStore } from '@/lib/store'
@@ -9,6 +9,7 @@ import { useWeather } from '@/hooks/useWeather'
 import { ToastContainer } from '@/components/ui/Toast'
 import { Header } from './Header'
 import { ChatPanel } from '@/components/chat/ChatPanel'
+import { useChatSend } from '@/hooks/useChatSend'
 import { Wizard } from '@/components/wizard/Wizard'
 import { ItineraryView } from '@/components/itinerary/ItineraryView'
 import { ConstructionScaffold } from '@/components/itinerary/ConstructionScaffold'
@@ -41,6 +42,45 @@ export function AppShell() {
   const [chatOpen, setChatOpen] = useState(() =>
     typeof window === 'undefined' ? true : window.matchMedia('(min-width: 768px)').matches,
   )
+  // Unread indicator: the agent's summary waits in the chat after a build —
+  // the panel never auto-opens; a subtle dot on the Chat button marks it.
+  const [chatUnread, setChatUnread] = useState(false)
+  const prevBuildActive = useRef(false)
+  useEffect(() => {
+    if (build.active && !prevBuildActive.current) {
+      // A live build starts: the user watches the construction full-width.
+      setChatOpen(false)
+      setChatUnread(false)
+    } else if (!build.active && prevBuildActive.current) {
+      // Build finished: chat stays closed; the summary sits unread inside it.
+      setChatUnread(true)
+    }
+    prevBuildActive.current = build.active
+  }, [build.active])
+
+  function toggleChat() {
+    setChatOpen((v) => {
+      if (!v) setChatUnread(false) // opening reads the summary
+      return !v
+    })
+  }
+
+  // A chat-prompt (e.g. the rain banner's "Get alternatives") needs the panel:
+  // if it's closed, open it and re-dispatch once so the mounted panel prefills.
+  useEffect(() => {
+    function onPrompt(e: Event) {
+      setChatOpen((open) => {
+        if (!open) {
+          const detail = (e as CustomEvent).detail
+          setTimeout(() => document.dispatchEvent(new CustomEvent('wandr:chat-prompt', { detail })), 180)
+          return true
+        }
+        return open
+      })
+    }
+    document.addEventListener('wandr:chat-prompt', onPrompt)
+    return () => document.removeEventListener('wandr:chat-prompt', onPrompt)
+  }, [])
 
   // A pre-trip conversation that exists but never produced a trip (e.g. a dropped
   // stream). We must NOT silently reset — show a clear "interrupted, retry" state.
@@ -84,7 +124,8 @@ export function AppShell() {
   return (
     <div className="flex flex-col h-screen bg-[#0a0a0a] overflow-hidden">
       <ToastContainer />
-      <Header chatOpen={chatOpen} onToggleChat={() => setChatOpen((v) => !v)} />
+      <ChatBridge />
+      <Header chatOpen={chatOpen} onToggleChat={toggleChat} chatDisabled={buildLocked} chatUnread={chatUnread} />
 
       <motion.div
         key="normal"
@@ -125,6 +166,36 @@ export function AppShell() {
       </motion.div>
     </div>
   )
+}
+
+// ─── ChatBridge ───────────────────────────────────────────────────────────────
+// Headless, ALWAYS-mounted owner of the programmatic chat events. These used to
+// live in ChatPanel, which meant "Resume", chip corrections, and re-plan sends
+// silently no-oped whenever the chat sidebar was closed (default on phones, and
+// always right after a live build). One global listener, no double-handling.
+
+function ChatBridge() {
+  const { sendMessage, resumeFill } = useChatSend()
+  const activeTripId = useStore((s) => s.activeTripId)
+
+  useEffect(() => {
+    function onSend(e: Event) {
+      const detail = (e as CustomEvent<{ message: string; intent?: 'full' | 'quick' }>).detail
+      // Programmatic sends from chips/day-edits are localized changes → 'quick'.
+      if (detail?.message) sendMessage(detail.message, detail.intent ?? 'quick')
+    }
+    function onResume() {
+      if (activeTripId) resumeFill(activeTripId)
+    }
+    document.addEventListener('wandr:send-message', onSend)
+    document.addEventListener('wandr:resume-fill', onResume)
+    return () => {
+      document.removeEventListener('wandr:send-message', onSend)
+      document.removeEventListener('wandr:resume-fill', onResume)
+    }
+  }, [sendMessage, resumeFill, activeTripId])
+
+  return null
 }
 
 // ─── GeneratingSkeleton ───────────────────────────────────────────────────────

@@ -10,9 +10,13 @@ import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 interface HeaderProps {
   chatOpen: boolean
   onToggleChat: () => void
+  /** Disabled while a trip is being built live (tooltip explains why). */
+  chatDisabled?: boolean
+  /** The agent's summary is waiting unread — show a subtle dot. */
+  chatUnread?: boolean
 }
 
-export function Header({ chatOpen, onToggleChat }: HeaderProps) {
+export function Header({ chatOpen, onToggleChat, chatDisabled = false, chatUnread = false }: HeaderProps) {
   const [dropdownOpen, setDropdownOpen] = useState(false)
   const [pendingDelete, setPendingDelete] = useState<{ id: string; name: string } | null>(null)
   const dropdownRef = useRef<HTMLDivElement>(null)
@@ -144,15 +148,26 @@ export function Header({ chatOpen, onToggleChat }: HeaderProps) {
       {/* Chat toggle ──────────────────────────────────────────────────────── */}
       <button
         onClick={onToggleChat}
+        disabled={chatDisabled}
+        title={chatDisabled ? 'Available once your trip is built' : undefined}
         className={cn(
-          'flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-[13px] font-medium transition-all duration-150',
+          'relative flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-[13px] font-medium transition-all duration-150',
           chatOpen
             ? 'bg-white text-black'
-            : 'border border-[#2a2a2a] text-[#888] hover:text-[#f0f0f0] hover:border-[#444]'
+            : 'border border-[#2a2a2a] text-[#888] hover:text-[#f0f0f0] hover:border-[#444]',
+          chatDisabled && 'opacity-45 cursor-not-allowed hover:text-[#888] hover:border-[#2a2a2a]',
         )}
       >
         {chatOpen ? <X size={13} /> : <MessageSquare size={13} />}
         {chatOpen ? 'Close' : 'Chat'}
+        {/* Unread summary dot — the agent's message waits inside, unopened */}
+        {chatUnread && !chatOpen && (
+          <span
+            data-testid="chat-unread-dot"
+            aria-hidden="true"
+            className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-white animate-in"
+          />
+        )}
       </button>
 
       {/* Styled destructive confirm (replaces window.confirm) */}

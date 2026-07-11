@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback, type ReactNode } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef, type ReactNode } from 'react'
 import { motion } from 'framer-motion'
 import {
   DndContext,
@@ -36,6 +36,9 @@ import { DayCard } from './DayCard'
 import { ActivityCard } from './ActivityCard'
 import { BuildStatusLine, Typewriter, CountUp } from './BuildStatus'
 import type { BuildState } from '@/lib/store'
+import { useRevealSequencer } from '@/hooks/useRevealSequencer'
+import { REVEAL_EASE, REVEAL_TIMING } from '@/lib/revealTiming'
+import { useReducedMotion } from 'framer-motion'
 import { BudgetPanel } from './BudgetPanel'
 import { LiveTravelPanel } from './LiveTravelPanel'
 import { ChecklistPanel } from './ChecklistPanel'
@@ -74,6 +77,50 @@ export function ItineraryView({ trip, building }: ItineraryViewProps) {
   const [showSliders, setShowSliders] = useState(false)
   const [localDays, setLocalDays] = useState<Day[]>(trip.days)
   const [activeDragId, setActiveDragId] = useState<string | null>(null)
+  const reduceMotion = useReducedMotion()
+
+  // ── Sequential reveal (live builds only) ─────────────────────────────────────
+  // The sequencer plays days in strict order at a controlled rhythm; data waits
+  // in the queue, the DOM only ever contains revealed days + the one revealing.
+  const reveal = useRevealSequencer(trip, !!building)
+  const displayDays = useMemo(() => {
+    if (!building) return null
+    const out: Array<{ day: Day; current: boolean }> = []
+    const doneCount = Math.min(reveal.revealed, localDays.length)
+    for (let i = 0; i < doneCount; i++) out.push({ day: localDays[i], current: false })
+    if (reveal.revealed < localDays.length) {
+      const d = localDays[reveal.revealed]
+      out.push({ day: { ...d, activities: d.activities.slice(0, reveal.visibleActs) }, current: true })
+    }
+    return out
+  }, [building, localDays, reveal.revealed, reveal.visibleActs])
+
+  // After a build settles we switch to the normal render path — remember it so
+  // the settled days don't replay their entrance (the "settle" must be subtle,
+  // not a re-flash of every card).
+  const wasBuiltRef = useRef(false)
+  useEffect(() => { if (building) wasBuiltRef.current = true }, [building])
+
+  // Auto-follow: keep the currently-building day in view — permanently disabled
+  // the moment the user scrolls on their own.
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const userScrolledRef = useRef(false)
+  useEffect(() => {
+    if (!building) return
+    const el = scrollRef.current
+    if (!el) return
+    const disable = () => { userScrolledRef.current = true }
+    el.addEventListener('wheel', disable, { passive: true })
+    el.addEventListener('touchstart', disable, { passive: true })
+    return () => { el.removeEventListener('wheel', disable); el.removeEventListener('touchstart', disable) }
+  }, [building])
+  useEffect(() => {
+    if (!building || userScrolledRef.current) return
+    const currentId = trip.days[Math.min(reveal.revealed, trip.days.length - 1)]?.id
+    if (!currentId) return
+    const node = scrollRef.current?.querySelector(`[data-day-id="${currentId}"]`)
+    node?.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'end' })
+  }, [building, reveal.revealed, reveal.visibleActs, trip.days, reduceMotion])
 
   useEffect(() => {
     if (!activeDragId) setLocalDays(trip.days)
@@ -174,7 +221,11 @@ export function ItineraryView({ trip, building }: ItineraryViewProps) {
     showToast({ message: 'Re-planning with new preferences…', type: 'info' })
   }
 
-  const activitiesSpent = calculateTripBudgetConverted(trip.days, budget.currency, rates)
+  // During a reveal the header spend counts up with what's ON SCREEN (revealed
+  // days + the current day's revealed activities) — global elements animate in
+  // parallel with the sequence, never ahead of it.
+  const spendSourceDays = displayDays ? displayDays.map((x) => x.day) : trip.days
+  const activitiesSpent = calculateTripBudgetConverted(spendSourceDays, budget.currency, rates)
   // Flight (live or estimate) is a transport line item in the budget.
   const flightOffer = trip.liveData?.flight ?? null
   const flightCost = flightOffer ? convertAmount(flightOffer.price, flightOffer.currency, budget.currency, rates) : 0
@@ -395,13 +446,14 @@ export function ItineraryView({ trip, building }: ItineraryViewProps) {
       {/* ── Map panel ────────────────────────────────────────────────────────── */}
       {activeTab === 'map' && (
         <div className="flex-1 min-h-0">
-          <MapPanel trip={trip} />
+          {/* During a reveal the map only shows COMPLETED days' pins. */}
+          <MapPanel trip={displayDays ? { ...trip, days: displayDays.filter((x) => !x.current).map((x) => x.day) } : trip} />
         </div>
       )}
 
       {/* ── Day list ─────────────────────────────────────────────────────────── */}
       {activeTab === 'itinerary' && (
-        <div className="flex-1 overflow-y-auto animate-in">
+        <div ref={scrollRef} className="flex-1 overflow-y-auto animate-in">
           {localDays.length === 0 ? (
             <div className="flex items-center justify-center h-full">
               <div className="text-center">
@@ -427,35 +479,69 @@ export function ItineraryView({ trip, building }: ItineraryViewProps) {
                 variants={{ show: { transition: { staggerChildren: 0.06 } } }}
                 className="p-4 md:p-6 space-y-3 max-w-2xl mx-auto w-full pb-10"
               >
-                {/* Live construction status (real pipeline state) */}
-                {building && <div className="mb-1"><BuildStatusLine build={building} /></div>}
+                {/* Live construction status (real pipeline + reveal state) */}
+                {building && (
+                  <div className="mb-1">
+                    <BuildStatusLine
+                      build={building}
+                      reveal={reveal.settledAll ? null : { current: Math.min(reveal.revealed + 1, trip.days.length || 1), total: trip.days.length }}
+                    />
+                  </div>
+                )}
 
                 {/* Live flights & hotels (cached on the trip) */}
                 <LiveTravelPanel trip={trip} rates={rates} loading={liveLoading} onRefresh={refreshLive} />
 
-                {localDays.map((day, index) => (
-                  <motion.div
-                    key={day.id}
-                    variants={{
-                      hidden: { opacity: 0, y: 16 },
-                      show: { opacity: 1, y: 0, transition: { duration: 0.36, ease: [0.16, 1, 0.3, 1] } },
-                    }}
-                  >
-                    <DayCard
-                      day={day}
-                      index={index}
-                      tripId={trip.id}
-                      tripCurrency={budget.currency}
-                      isDraggingAny={activeDragId !== null}
-                      rates={rates}
-                      showLocalPrices={showLocalPrices}
-                      planning={isGenerating && !building}
-                      incomplete={showResume}
-                      building={!!building}
-                      failed={building?.failedDayIds.includes(day.id) ?? false}
-                    />
-                  </motion.div>
-                ))}
+                {displayDays ? (
+                  /* ── LIVE REVEAL: strictly sequential — the DOM only contains
+                        revealed days plus the one currently playing. Each day
+                        mounts through its frame entrance (slide 12px + fade). ── */
+                  displayDays.map(({ day, current }, index) => (
+                    <motion.div
+                      key={day.id}
+                      initial={reduceMotion ? { opacity: 0 } : { opacity: 0, y: 12 }}
+                      animate={reduceMotion ? { opacity: 1 } : { opacity: 1, y: 0 }}
+                      transition={{ duration: reduceMotion ? 0.12 : REVEAL_TIMING.frameMs / 1000, ease: REVEAL_EASE }}
+                    >
+                      <DayCard
+                        day={day}
+                        index={index}
+                        tripId={trip.id}
+                        tripCurrency={budget.currency}
+                        isDraggingAny={activeDragId !== null}
+                        rates={rates}
+                        showLocalPrices={showLocalPrices}
+                        building={current}
+                        failed={building?.failedDayIds.includes(day.id) ?? false}
+                      />
+                    </motion.div>
+                  ))
+                ) : (
+                  localDays.map((day, index) => (
+                    <motion.div
+                      key={day.id}
+                      // After a live build settles, days are already on screen —
+                      // initial={false} prevents a re-entrance flash.
+                      initial={wasBuiltRef.current ? false : undefined}
+                      variants={{
+                        hidden: { opacity: 0, y: 16 },
+                        show: { opacity: 1, y: 0, transition: { duration: 0.36, ease: [0.16, 1, 0.3, 1] } },
+                      }}
+                    >
+                      <DayCard
+                        day={day}
+                        index={index}
+                        tripId={trip.id}
+                        tripCurrency={budget.currency}
+                        isDraggingAny={activeDragId !== null}
+                        rates={rates}
+                        showLocalPrices={showLocalPrices}
+                        planning={isGenerating}
+                        incomplete={showResume}
+                      />
+                    </motion.div>
+                  ))
+                )}
               </motion.div>
 
               {/* Drag overlay — renders the floating card under the cursor.

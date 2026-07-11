@@ -26,7 +26,7 @@ export function ChatPanel({ locked = false }: { locked?: boolean }) {
   const chatHistory  = useStore((s) => s.chatHistory)
   const activeTrip   = activeTripId ? trips[activeTripId] : null
 
-  const { sendMessage, isGenerating, resumeFill } = useChatSend()
+  const { sendMessage, isGenerating } = useChatSend()
 
   const chatKey  = activeTripId ?? '__new__'
   const messages: ChatMessage[] = chatHistory[chatKey] ?? []
@@ -54,8 +54,9 @@ export function ChatPanel({ locked = false }: { locked?: boolean }) {
     return () => document.removeEventListener('wandr:chat-prompt', handler)
   }, [])
 
-  // wandr:send-message — programmatic send (e.g. from DayCard or ItineraryView)
-  const handleSendRef = useRef<((text: string, intent?: 'full' | 'quick') => void) | null>(null)
+  // NOTE: the programmatic wandr:send-message / wandr:resume-fill events are
+  // handled by the always-mounted ChatBridge in AppShell (this panel is often
+  // closed — on phones and right after a live build).
 
   async function handleSend(override?: string, intent: 'full' | 'quick' = 'full') {
     const text = (override ?? input).trim()
@@ -64,30 +65,6 @@ export function ChatPanel({ locked = false }: { locked?: boolean }) {
     // Height auto-resets via useLayoutEffect in ChatInput when value becomes ''
     await sendMessage(text, intent)
   }
-
-  useEffect(() => {
-    handleSendRef.current = (text: string, intent: 'full' | 'quick' = 'full') => handleSend(text, intent)
-  })
-
-  useEffect(() => {
-    function handler(e: Event) {
-      const detail = (e as CustomEvent<{ message: string; intent?: 'full' | 'quick' }>).detail
-      const msg = detail?.message
-      // Programmatic sends from chips/day-edits are localized changes → 'quick' tier.
-      if (msg) handleSendRef.current?.(msg, detail?.intent ?? 'quick')
-    }
-    document.addEventListener('wandr:send-message', handler)
-    return () => document.removeEventListener('wandr:send-message', handler)
-  }, [])
-
-  // wandr:resume-fill — resume a chunked generation that was interrupted mid-fill
-  useEffect(() => {
-    function handler() {
-      if (activeTripId) resumeFill(activeTripId)
-    }
-    document.addEventListener('wandr:resume-fill', handler)
-    return () => document.removeEventListener('wandr:resume-fill', handler)
-  }, [activeTripId, resumeFill])
 
   // ── Prompt enhancer ──────────────────────────────────────────────────────────
   async function handleEnhance() {

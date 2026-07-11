@@ -69,7 +69,7 @@ test('a failed batch does not abort the rest; incomplete state + resume complete
   await page.waitForFunction(() => {
     const s = JSON.parse(localStorage.getItem('wandr-v1') || '{}').state
     return s?.trips?.trip_mock && s.isGenerating !== true
-  }, { timeout: 20_000 }).catch(() => {})
+  }, null, { timeout: 20_000 }).catch(() => {})
   await page.waitForTimeout(1500)
 
   // Batch [d4,d5,d6] failed twice → those 3 days empty; the other 6 filled.
@@ -83,9 +83,10 @@ test('a failed batch does not abort the rest; incomplete state + resume complete
   })
   expect(d7, 'days AFTER the failed batch were still built (not aborted)').toBeGreaterThan(0)
 
-  // Incomplete state is explicit, not a silent success.
-  await expect(page.getByText(/didn't finish building/i).first()).toBeVisible()
-  await expect(page.getByText(/still need activities/i).first()).toBeVisible()
+  // Incomplete state is explicit, not a silent success. (The sequential reveal
+  // plays out first — the Resume affordance appears once the reveal settles.)
+  await expect(page.getByText(/didn't finish building/i).first()).toBeVisible({ timeout: 45_000 })
+  await expect(page.getByText(/still need activities/i).first()).toBeVisible({ timeout: 10_000 })
 
   // Resume completes the remaining days (the mock now succeeds for d4-d6).
   await page.getByRole('button', { name: /^Resume$/ }).click()
@@ -93,7 +94,7 @@ test('a failed batch does not abort the rest; incomplete state + resume complete
     const s = JSON.parse(localStorage.getItem('wandr-v1') || '{}').state
     const t = s?.trips?.trip_mock
     return t && s.isGenerating !== true && t.days.every((d: { activities?: unknown[] }) => d.activities && d.activities.length > 0)
-  }, { timeout: 20_000 })
+  }, null, { timeout: 20_000 })
   counts = await emptyDayCount(page)
   expect(counts, 'all days filled after resume').toEqual({ total: 9, empty: 0 })
 })
@@ -121,7 +122,7 @@ test('requested day count is honored end-to-end (all filled, none empty)', async
     const s = JSON.parse(localStorage.getItem('wandr-v1') || '{}').state
     const t = s?.trips?.trip_mock
     return t && s.isGenerating !== true && t.days.length === 9 && t.days.every((d: { activities?: unknown[] }) => d.activities && d.activities.length > 0)
-  }, { timeout: 20_000 })
+  }, null, { timeout: 20_000 })
   const counts = await emptyDayCount(page)
   expect(counts).toEqual({ total: 9, empty: 0 })
 })

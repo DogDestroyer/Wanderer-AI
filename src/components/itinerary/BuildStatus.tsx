@@ -50,37 +50,51 @@ export function CountUp({ value, format }: { value: number; format: (n: number) 
   return <>{format(disp)}</>
 }
 
-export function BuildStatusLine({ build }: { build: BuildState }) {
+export function BuildStatusLine({ build, reveal }: {
+  build: BuildState
+  /** Non-null while the sequential reveal is still playing (pipeline may already
+   *  be done). The summary check only lands once the final day has settled. */
+  reveal?: { current: number; total: number } | null
+}) {
   const [elapsed, setElapsed] = useState(0)
-  const complete = build.phase === 'complete'
+  const pipelineDone = build.phase === 'complete'
+  const settled = pipelineDone && !reveal
 
   useEffect(() => {
-    if (complete || !build.startedAt) return
+    if (settled || !build.startedAt) return
     const tick = () => setElapsed(Math.max(0, Math.floor((Date.now() - build.startedAt) / 1000)))
     tick()
     const id = setInterval(tick, 1000)
     return () => clearInterval(id)
-  }, [complete, build.startedAt])
+  }, [settled, build.startedAt])
 
-  // Honest waiting: if no heartbeat/batch for a while, say so rather than fake progress.
-  const stalled = !complete && build.lastEventAt > 0 && Date.now() - build.lastEventAt > 14_000
+  // Honest waiting: if the PIPELINE goes quiet, say so rather than fake progress.
+  // (Not shown once the pipeline is done and only the reveal is catching up.)
+  const stalled = !pipelineDone && build.lastEventAt > 0 && Date.now() - build.lastEventAt > 14_000
+
+  const text = stalled
+    ? 'Still working — waiting on the model…'
+    : pipelineDone && reveal
+      ? `Putting it together — day ${reveal.current} of ${reveal.total}…`
+      : build.statusLine
 
   return (
     <div
       data-testid="build-status"
       data-phase={build.phase}
+      data-settled={settled ? 'true' : 'false'}
       className={cn(
-        'flex items-center gap-2.5 px-3 py-2 rounded-lg border text-[12px]',
-        complete ? 'bg-[#0c1a12] border-[#1f4030] text-[#5fd39a]' : 'bg-[#0d0d0d] border-[#1f1f1f] text-[#888]',
+        'flex items-center gap-2.5 px-3 py-2 rounded-lg border text-[12px] animate-in',
+        settled ? 'bg-[#0c1a12] border-[#1f4030] text-[#5fd39a]' : 'bg-[#0d0d0d] border-[#1f1f1f] text-[#888]',
       )}
     >
-      {complete ? (
+      {settled ? (
         <Check size={13} className="text-[#3eb87a] shrink-0" />
       ) : (
         <span className="build-pulse w-1.5 h-1.5 rounded-full bg-[#3eb87a] shrink-0" />
       )}
-      <span className="font-medium truncate">{stalled ? 'Still working — waiting on the model…' : build.statusLine}</span>
-      {!complete && <span className="ml-auto text-[11px] text-[#444] tabular-nums shrink-0">{elapsed}s</span>}
+      <span className="font-medium truncate">{text}</span>
+      {!settled && <span className="ml-auto text-[11px] text-[#444] tabular-nums shrink-0">{elapsed}s</span>}
     </div>
   )
 }

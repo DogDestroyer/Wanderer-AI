@@ -101,16 +101,13 @@ export function ConstructionScaffold({ build }: { build: BuildState }) {
         </div>
       </div>
 
-      {/* Day list — shimmer blocks that build in */}
+      {/* One elegant shimmer block — days reveal strictly one at a time once the
+          skeleton lands, so we never pre-draw blocks we'd have to swap away. */}
       <div className="flex-1 overflow-y-auto">
         <div className="p-4 md:p-6 space-y-3 max-w-2xl mx-auto w-full pb-10">
           <div className="mb-1"><BuildStatusLine build={build} /></div>
-          <motion.div className="space-y-3" initial="hidden" animate="show" variants={{ show: { transition: { staggerChildren: 0.1 } } }}>
-            {days.map((d) => (
-              <motion.div key={d.index} variants={{ hidden: { opacity: 0, y: 16 }, show: { opacity: 1, y: 0, transition: { duration: 0.36, ease: EASE } } }}>
-                <DayShimmer index={d.index} date={d.date} />
-              </motion.div>
-            ))}
+          <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3, ease: EASE }}>
+            <DayShimmer index={0} date={days[0]?.date} />
           </motion.div>
         </div>
       </div>

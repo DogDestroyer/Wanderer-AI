@@ -394,7 +394,10 @@ export function useChatSend() {
             ? `Your trip is ready · ${result.total} days · ${activityCount} ${activityCount === 1 ? 'activity' : 'activities'}`
             : `Built ${result.filled} of ${result.total} days — ${result.total - result.filled} need a retry`
           updateBuild({ phase: 'complete', statusLine: status })
-          setTimeout(() => useStore.getState().endBuild(), 1600)
+          // The reveal sequencer (useRevealSequencer) ends the build session once
+          // the final day has visually settled. This is only a safety net in case
+          // the view unmounted mid-build and the sequencer never finishes.
+          setTimeout(() => useStore.getState().endBuild(), 90_000)
         }
         return
       }

@@ -110,6 +110,28 @@ body {
   .build-shimmer::after { display: none; }
 }
 
+/* ── Build-reveal micro-choreography ─────────────────────────────────────────
+   One easing for the whole reveal (matches framer's [0.16,1,0.3,1] token in
+   src/lib/revealTiming.ts). Applied inside the currently-revealing day only:
+   - .rv-badge          day-number badge scales in ~100ms after the frame
+   - .rv-enter [data-rv="sub"]   category badge / cost fade a beat after the title
+   - .rv-enter [data-rv="line"]  travel connector draws its height in
+   transform/opacity only. */
+.rv-badge { animation: rv-pop 0.25s cubic-bezier(0.16, 1, 0.3, 1) 0.1s both; }
+@keyframes rv-pop {
+  from { transform: scale(0.6); opacity: 0; }
+  to   { transform: scale(1); opacity: 1; }
+}
+.rv-enter [data-rv="sub"] { animation: rv-fade 0.3s cubic-bezier(0.16, 1, 0.3, 1) 0.18s both; }
+@keyframes rv-fade { from { opacity: 0; } to { opacity: 1; } }
+.rv-enter [data-rv="line"] { animation: rv-line 0.25s cubic-bezier(0.16, 1, 0.3, 1) both; transform-origin: top; }
+@keyframes rv-line { from { transform: scaleY(0); } to { transform: scaleY(1); } }
+@media (prefers-reduced-motion: reduce) {
+  .rv-badge, .rv-enter [data-rv="sub"], .rv-enter [data-rv="line"] {
+    animation: rv-fade 0.12s ease-out both;
+  }
+}
+
 /* Subtle pop when a stepper value changes */
 .wizard-pop { animation: wizard-pop 0.18s ease-out; }
 @keyframes wizard-pop {

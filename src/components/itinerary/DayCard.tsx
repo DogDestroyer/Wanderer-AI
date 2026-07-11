@@ -4,7 +4,9 @@ import { useState } from 'react'
 import { useDroppable } from '@dnd-kit/core'
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { DollarSign, Pencil, Check, X, RotateCw, AlertTriangle } from 'lucide-react'
+import { motion, useReducedMotion } from 'framer-motion'
 import { Typewriter, CountUp } from './BuildStatus'
+import { REVEAL_EASE } from '@/lib/revealTiming'
 import type { Day } from '@/lib/types'
 import { cn, formatCurrency, getWeatherEmoji, isBadWeather } from '@/lib/utils'
 import { calculateDayBudgetConverted, detectTimingConflicts } from '@/lib/recalculate'
@@ -59,6 +61,7 @@ export function DayCard({ day, index, tripId, tripCurrency, isDraggingAny, rates
       data-testid="day-card"
       data-day-id={day.id}
       data-populated={activities.length > 0 ? 'true' : 'false'}
+      data-interactive={building || failed ? 'false' : 'true'}
       className={cn(
         'bg-[#111111] rounded-xl border overflow-hidden transition-colors duration-150',
         isOver && isDraggingAny
@@ -69,8 +72,8 @@ export function DayCard({ day, index, tripId, tripCurrency, isDraggingAny, rates
       {/* ── Day header ─────────────────────────────────────────────────────── */}
       <div className="group flex items-center justify-between px-4 py-3 border-b border-[#1f1f1f]">
         <div className="flex items-center gap-3 min-w-0">
-          {/* Day number pill */}
-          <div className="w-7 h-7 rounded-lg bg-[#1f1f1f] flex items-center justify-center shrink-0">
+          {/* Day number pill — pops in slightly after the frame during a reveal */}
+          <div className={cn('w-7 h-7 rounded-lg bg-[#1f1f1f] flex items-center justify-center shrink-0', building && 'rv-badge')}>
             <span className="text-[11px] font-bold text-[#888]">{index + 1}</span>
           </div>
           <div className="min-w-0">
@@ -196,9 +199,10 @@ export function DayCard({ day, index, tripId, tripCurrency, isDraggingAny, rates
           </div>
         ) : (
           <SortableContext items={activityIds} strategy={verticalListSortingStrategy}>
-            <div className={cn('divide-y divide-[#161616]', building && 'animate-in')}>
+            <div className="divide-y divide-[#161616]">
               {activities.map((activity, actIdx) => (
-                <SortableActivityCard
+                <RevealItem key={activity.id} revealing={!!building}>
+                  <SortableActivityCard
                   key={activity.id}
                   activity={activity}
                   isFirst={actIdx === 0}
@@ -211,7 +215,8 @@ export function DayCard({ day, index, tripId, tripCurrency, isDraggingAny, rates
                   budgetCurrency={tripCurrency}
                   rates={rates}
                   showLocalPrices={showLocalPrices}
-                />
+                  />
+                </RevealItem>
               ))}
             </div>
           </SortableContext>
@@ -251,5 +256,26 @@ export function DayCard({ day, index, tripId, tripCurrency, isDraggingAny, rates
         </div>
       )}
     </div>
+  )
+}
+
+// ─── RevealItem ───────────────────────────────────────────────────────────────
+// During a live build, each activity row enters with a slide-up + fade; the
+// `rv-enter` class delays its category badge / cost / connector a beat behind
+// (see globals.css). Outside a build it's a passthrough — zero overhead and
+// identical DOM semantics for the settled view.
+
+function RevealItem({ revealing, children }: { revealing: boolean; children: React.ReactNode }) {
+  const reduce = useReducedMotion()
+  if (!revealing) return <>{children}</>
+  return (
+    <motion.div
+      className="rv-enter"
+      initial={reduce ? { opacity: 0 } : { opacity: 0, y: 8 }}
+      animate={reduce ? { opacity: 1 } : { opacity: 1, y: 0 }}
+      transition={{ duration: reduce ? 0.12 : 0.28, ease: REVEAL_EASE }}
+    >
+      {children}
+    </motion.div>
   )
 }

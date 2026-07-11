@@ -36,8 +36,8 @@ export function TravelConnector({ minutes }: { minutes: number }) {
   if (!minutes || minutes <= 0) return null
   return (
     <div className="flex items-center gap-2 py-1 pl-[72px]">
-      <div className="w-px h-4 bg-[#2a2a2a] ml-[7px]" />
-      <span className="text-[10px] text-[#777] font-medium tracking-wide">
+      <div data-rv="line" className="w-px h-4 bg-[#2a2a2a] ml-[7px]" />
+      <span data-rv="sub" className="text-[10px] text-[#777] font-medium tracking-wide">
         {formatDurationMins(minutes)} travel
       </span>
     </div>
@@ -171,6 +171,7 @@ export function ActivityCard({
         <div className="flex items-start justify-between gap-2">
           <div className="flex items-center gap-1.5 flex-wrap min-w-0">
             <span
+              data-rv="sub"
               className={cn(
                 'inline-flex items-center px-1.5 py-0.5 rounded-md text-[10px] font-medium capitalize shrink-0',
                 categoryBadge
@@ -251,7 +252,7 @@ export function ActivityCard({
 
           {/* Cost — selected currency primary, original local price muted below */}
           {cost.amount > 0 && (
-            <div className="flex flex-col items-end shrink-0">
+            <div data-rv="sub" className="flex flex-col items-end shrink-0">
               <span className="text-[11px] font-semibold text-[#888] tabular-nums">
                 {formatCurrency(primaryAmount, primaryCurrency)}
                 {cost.isEstimate && <span className="text-[#444] font-normal"> ~</span>}
