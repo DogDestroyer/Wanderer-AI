@@ -121,7 +121,7 @@ function ReservationCard({ trip, reservation: r, rates }: { trip: TripPlan; rese
       </div>
       <div className="flex flex-col items-end gap-1.5 shrink-0">
         {costDisplay && <span className="text-[12px] font-bold text-[#f0f0f0] tabular-nums">{costDisplay}</span>}
-        <div className="flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
+        <div className="flex items-center gap-1.5 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
           <button onClick={() => setEditing(true)} aria-label="Edit reservation" className="text-[#555] hover:text-[#aaa]"><Pencil size={11} /></button>
           <button onClick={() => deleteReservation(trip.id, r.id)} aria-label="Delete reservation" className="text-[#555] hover:text-[#ef4444]"><Trash2 size={11} /></button>
         </div>

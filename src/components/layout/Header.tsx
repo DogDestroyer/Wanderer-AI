@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { ChevronDown, Plus, Trash2, MessageSquare, X } from 'lucide-react'
 import { useStore } from '@/lib/store'
 import { cn, formatNights } from '@/lib/utils'
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 
 interface HeaderProps {
   chatOpen: boolean
@@ -13,6 +14,7 @@ interface HeaderProps {
 
 export function Header({ chatOpen, onToggleChat }: HeaderProps) {
   const [dropdownOpen, setDropdownOpen] = useState(false)
+  const [pendingDelete, setPendingDelete] = useState<{ id: string; name: string } | null>(null)
   const dropdownRef = useRef<HTMLDivElement>(null)
 
   const { trips, activeTripId, setActiveTrip, deleteTrip, startWizard } = useStore()
@@ -44,9 +46,8 @@ export function Header({ chatOpen, onToggleChat }: HeaderProps) {
 
   function handleDelete(tripId: string, e: React.MouseEvent) {
     e.stopPropagation()
-    if (confirm('Delete this trip? This cannot be undone.')) {
-      deleteTrip(tripId)
-    }
+    const trip = trips[tripId]
+    setPendingDelete({ id: tripId, name: trip?.name ?? 'this trip' })
   }
 
   return (
@@ -125,7 +126,7 @@ export function Header({ chatOpen, onToggleChat }: HeaderProps) {
                     <button
                       onClick={(e) => handleDelete(trip.id, e)}
                       aria-label={`Delete trip ${trip.name}`}
-                      className="opacity-0 group-hover:opacity-100 ml-2 p-1 rounded hover:bg-[#2a2a2a] text-[#555] hover:text-[#f0f0f0] transition-all shrink-0"
+                      className="opacity-100 md:opacity-0 md:group-hover:opacity-100 ml-2 p-1 rounded hover:bg-[#2a2a2a] text-[#555] hover:text-[#f0f0f0] transition-all shrink-0"
                     >
                       <Trash2 size={11} />
                     </button>
@@ -153,6 +154,16 @@ export function Header({ chatOpen, onToggleChat }: HeaderProps) {
         {chatOpen ? <X size={13} /> : <MessageSquare size={13} />}
         {chatOpen ? 'Close' : 'Chat'}
       </button>
+
+      {/* Styled destructive confirm (replaces window.confirm) */}
+      <ConfirmDialog
+        open={pendingDelete !== null}
+        title="Delete this trip?"
+        message={`“${pendingDelete?.name ?? ''}” and its chat history will be permanently removed. This cannot be undone.`}
+        confirmLabel="Delete trip"
+        onConfirm={() => { if (pendingDelete) deleteTrip(pendingDelete.id); setPendingDelete(null) }}
+        onCancel={() => setPendingDelete(null)}
+      />
     </header>
   )
 }

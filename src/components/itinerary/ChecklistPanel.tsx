@@ -144,7 +144,7 @@ function ChecklistRow({ tripId, item }: { tripId: string; item: ChecklistItem })
 
   return (
     <div ref={setNodeRef} style={style} className="group flex items-center gap-2 px-3 py-2">
-      <button {...attributes} {...listeners} aria-label="Drag to reorder" className="cursor-grab active:cursor-grabbing text-[#333] hover:text-[#666] opacity-0 group-hover:opacity-100 transition-opacity touch-none">
+      <button {...attributes} {...listeners} aria-label="Drag to reorder" className="cursor-grab active:cursor-grabbing text-[#333] hover:text-[#666] opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity touch-none">
         <GripVertical size={12} />
       </button>
       <button
@@ -163,7 +163,7 @@ function ChecklistRow({ tripId, item }: { tripId: string; item: ChecklistItem })
       <button
         onClick={() => deleteChecklistItem(tripId, item.id)}
         aria-label="Delete item"
-        className="text-[#444] hover:text-[#ef4444] opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
+        className="text-[#444] hover:text-[#ef4444] opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity shrink-0"
       >
         <Trash2 size={12} />
       </button>

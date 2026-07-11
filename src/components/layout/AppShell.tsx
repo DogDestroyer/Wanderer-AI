@@ -34,8 +34,13 @@ export function AppShell() {
   const activeTrip   = activeTripId ? trips[activeTripId] : null
   const buildLocked  = build.active && build.phase !== 'complete'
 
-  // chatOpen: sidebar visibility in normal mode
-  const [chatOpen, setChatOpen] = useState(true)
+  // chatOpen: sidebar visibility in normal mode. On phones the sidebar is
+  // full-width (it would completely cover the itinerary), so it starts CLOSED
+  // below md and open on desktop. Runs only on the client (skipHydration means
+  // this component meaningfully renders post-hydration anyway).
+  const [chatOpen, setChatOpen] = useState(() =>
+    typeof window === 'undefined' ? true : window.matchMedia('(min-width: 768px)').matches,
+  )
 
   // A pre-trip conversation that exists but never produced a trip (e.g. a dropped
   // stream). We must NOT silently reset — show a clear "interrupted, retry" state.
