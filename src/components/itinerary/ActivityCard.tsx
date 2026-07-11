@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { MapPin, Clock, Lock, Unlock, Pencil, CloudRain, Check, X, BookmarkCheck, CircleCheck } from 'lucide-react'
+import { MapPin, Clock, Lock, Unlock, Pencil, CloudRain, Check, X, BookmarkCheck, CircleCheck, Trash2 } from 'lucide-react'
 import type { Activity, ActivityCategory } from '@/lib/types'
 import {
   cn,
@@ -59,6 +59,8 @@ interface ActivityCardProps {
   /** When provided, the card is interactive: lock toggle + edit pencil are shown. */
   onToggleLock?: () => void
   onSaveEdit?: (patch: Partial<Activity>) => void
+  /** Delete this activity (shown inside the edit form; undoable via history). */
+  onDelete?: () => void
   /** Reservation link (feature 4): whether this activity is reserved, + a callback. */
   isReserved?: boolean
   onReserve?: () => void
@@ -73,6 +75,7 @@ export function ActivityCard({
   showLocalPrices = true,
   onToggleLock,
   onSaveEdit,
+  onDelete,
   isReserved,
   onReserve,
 }: ActivityCardProps) {
@@ -116,6 +119,7 @@ export function ActivityCard({
             setEditing(false)
           }}
           onCancel={() => setEditing(false)}
+          onDelete={onDelete}
         />
       </div>
     )
@@ -123,6 +127,7 @@ export function ActivityCard({
 
   return (
     <div
+      data-testid="activity-card"
       className={cn(
         'relative flex gap-4 px-4 py-3.5 group transition-colors',
         hasConflict
@@ -184,6 +189,7 @@ export function ActivityCard({
             {interactive && onToggleLock ? (
               <button
                 type="button"
+                data-coach="lock"
                 onPointerDown={(e) => e.stopPropagation()}
                 onClick={(e) => {
                   e.stopPropagation()
@@ -316,10 +322,12 @@ function ActivityEditForm({
   activity,
   onSave,
   onCancel,
+  onDelete,
 }: {
   activity: Activity
   onSave: (patch: Partial<Activity>) => void
   onCancel: () => void
+  onDelete?: () => void
 }) {
   const [title, setTitle] = useState(activity.title)
   const [description, setDescription] = useState(activity.description)
@@ -432,6 +440,16 @@ function ActivityEditForm({
 
       {/* Actions */}
       <div className="flex items-center justify-end gap-2 pt-0.5">
+        {onDelete && (
+          <button
+            type="button"
+            onClick={onDelete}
+            aria-label={`Delete ${activity.title}`}
+            className="mr-auto flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-medium text-[#ef4444]/80 hover:text-[#ef4444] border border-[#3a1515] hover:border-[#5a2020] transition-colors"
+          >
+            <Trash2 size={11} /> Delete
+          </button>
+        )}
         <button
           type="button"
           onClick={onCancel}

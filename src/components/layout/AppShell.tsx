@@ -13,6 +13,7 @@ import { useChatSend } from '@/hooks/useChatSend'
 import { Wizard } from '@/components/wizard/Wizard'
 import { ItineraryView } from '@/components/itinerary/ItineraryView'
 import { ConstructionScaffold } from '@/components/itinerary/ConstructionScaffold'
+import { CoachMarks } from '@/components/ui/CoachMarks'
 
 // ─── AppShell ─────────────────────────────────────────────────────────────────
 // Controls the app's top-level modes:
@@ -45,6 +46,10 @@ export function AppShell() {
   // Unread indicator: the agent's summary waits in the chat after a build —
   // the panel never auto-opens; a subtle dot on the Chat button marks it.
   const [chatUnread, setChatUnread] = useState(false)
+  // One-time post-build guidance: starts on the user's FIRST completed build.
+  const [showCoachMarks, setShowCoachMarks] = useState(false)
+  const guidanceSeen = useStore((s) => s.guidanceSeen)
+  const setGuidanceSeen = useStore((s) => s.setGuidanceSeen)
   const prevBuildActive = useRef(false)
   useEffect(() => {
     if (build.active && !prevBuildActive.current) {
@@ -54,9 +59,14 @@ export function AppShell() {
     } else if (!build.active && prevBuildActive.current) {
       // Build finished: chat stays closed; the summary sits unread inside it.
       setChatUnread(true)
+      if (!guidanceSeen) {
+        // Flag persists IMMEDIATELY (never twice, even across a mid-tour refresh).
+        setGuidanceSeen()
+        setShowCoachMarks(true)
+      }
     }
     prevBuildActive.current = build.active
-  }, [build.active])
+  }, [build.active, guidanceSeen, setGuidanceSeen])
 
   function toggleChat() {
     setChatOpen((v) => {
@@ -64,6 +74,29 @@ export function AppShell() {
       return !v
     })
   }
+
+  // ── Global undo/redo shortcuts ──────────────────────────────────────────────
+  // Ctrl/Cmd+Z undo, Ctrl/Cmd+Shift+Z (or Ctrl+Y) redo. Ignored while typing in
+  // text fields — native text-editing undo wins there. Inert during a build
+  // (the store also guards, belt and braces).
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      const mod = e.ctrlKey || e.metaKey
+      if (!mod) return
+      const key = e.key.toLowerCase()
+      if (key !== 'z' && key !== 'y') return
+      const el = e.target as HTMLElement
+      const typing = ['INPUT', 'TEXTAREA', 'SELECT'].includes(el.tagName) || el.isContentEditable
+      if (typing) return
+      const s = useStore.getState()
+      if (s.build.active) return
+      e.preventDefault()
+      if (key === 'y' || (key === 'z' && e.shiftKey)) s.redo()
+      else s.undo()
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [])
 
   // A chat-prompt (e.g. the rain banner's "Get alternatives") needs the panel:
   // if it's closed, open it and re-dispatch once so the mounted panel prefills.
@@ -125,6 +158,7 @@ export function AppShell() {
     <div className="flex flex-col h-screen bg-[#0a0a0a] overflow-hidden">
       <ToastContainer />
       <ChatBridge />
+      {showCoachMarks && <CoachMarks onDone={() => setShowCoachMarks(false)} />}
       <Header chatOpen={chatOpen} onToggleChat={toggleChat} chatDisabled={buildLocked} chatUnread={chatUnread} />
 
       <motion.div

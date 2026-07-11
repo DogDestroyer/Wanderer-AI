@@ -36,6 +36,25 @@ export interface BuildState {
 }
 const INITIAL_BUILD: BuildState = { active: false, phase: 'scaffold', scaffold: null, statusLine: '', startedAt: 0, lastEventAt: 0, failedDayIds: [] }
 
+// ─── Undo / redo history ──────────────────────────────────────────────────────
+// STATE-LEVEL history: every qualifying mutation pushes the ACTIVE trip's
+// pre-mutation object onto a per-trip undo stack. Snapshots are REFERENCES into
+// the immutable store state (mutations spread-and-replace; unchanged days and
+// activities keep their identity), so consecutive entries structurally share
+// everything untouched — a 50-entry stack on a 16-day trip costs only the
+// deltas (worst case ~7MB if every entry were fully distinct; real usage is a
+// small fraction). That makes plain snapshots strictly simpler AND cheaper
+// than diffing. In-memory only by design (not persisted — see CLAUDE.md).
+export interface HistoryEntry {
+  trip: TripPlan
+  label: string   // human label: "Moved Hotpot Dinner", "AI updated the plan"…
+}
+export interface TripHistory {
+  past: HistoryEntry[]
+  future: HistoryEntry[]
+}
+const HISTORY_CAP = 50
+
 // ─── State shape ──────────────────────────────────────────────────────────────
 
 interface AppState {
@@ -76,6 +95,19 @@ interface AppState {
   updateBuild: (patch: Partial<BuildState>) => void
   bumpBuild: () => void      // heartbeat: prove liveness without other changes
   endBuild: () => void
+
+  // ── Undo / redo (per-trip, in-memory only) ──
+  histories: Record<string, TripHistory>
+  /** Push the active snapshot of `tripId` with a label. No-op mid-build.
+   *  Used by external mutation sites (agent patches, chip corrections);
+   *  the store's own qualifying actions capture internally. */
+  captureHistory: (tripId: string, label: string) => void
+  undo: () => void
+  redo: () => void
+
+  // ── One-time post-build guidance ──
+  guidanceSeen: boolean
+  setGuidanceSeen: () => void
 
   // ── Trip CRUD ──
   createTrip: (trip: TripPlan) => void
@@ -153,6 +185,23 @@ interface AppState {
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 const now = () => new Date().toISOString()
+
+// Compute the histories patch for one qualifying mutation: push the CURRENT
+// (pre-mutation) trip reference, cap the stack, clear redo. No-ops during a
+// live build (the undo system is disabled there and stacks start fresh after).
+function capture(
+  s: Pick<AppState, 'trips' | 'histories' | 'build'>,
+  tripId: string,
+  label: string,
+): { histories: Record<string, TripHistory> } | Record<string, never> {
+  if (s.build.active) return {}
+  const trip = s.trips[tripId]
+  if (!trip) return {}
+  const h = s.histories[tripId] ?? { past: [], future: [] }
+  const past = [...h.past, { trip, label }]
+  if (past.length > HISTORY_CAP) past.shift()
+  return { histories: { ...s.histories, [tripId]: { past, future: [] } } }
+}
 
 function patchTrip(
   trips: Record<string, TripPlan>,
@@ -267,7 +316,51 @@ export const useStore = create<AppState>()(
 
       bumpBuild: () => set((s) => (s.build.active ? { build: { ...s.build, lastEventAt: Date.now() } } : s)),
 
-      endBuild: () => set(() => ({ build: { ...INITIAL_BUILD } })),
+      endBuild: () =>
+        set((s) => ({
+          build: { ...INITIAL_BUILD },
+          // Construction complete → the undo stack starts fresh for this trip.
+          histories: s.activeTripId ? { ...s.histories, [s.activeTripId]: { past: [], future: [] } } : s.histories,
+        })),
+
+      // ── Undo / redo ─────────────────────────────────────────────────────────
+
+      histories: {},
+
+      captureHistory: (tripId, label) => set((s) => capture(s, tripId, label)),
+
+      undo: () =>
+        set((s) => {
+          const id = s.activeTripId
+          if (!id || s.build.active) return s
+          const h = s.histories[id]
+          if (!h || h.past.length === 0) return s
+          const entry = h.past[h.past.length - 1]
+          const redoEntry: HistoryEntry = { trip: s.trips[id], label: entry.label }
+          return {
+            trips: { ...s.trips, [id]: entry.trip },
+            histories: { ...s.histories, [id]: { past: h.past.slice(0, -1), future: [...h.future, redoEntry] } },
+          }
+        }),
+
+      redo: () =>
+        set((s) => {
+          const id = s.activeTripId
+          if (!id || s.build.active) return s
+          const h = s.histories[id]
+          if (!h || h.future.length === 0) return s
+          const entry = h.future[h.future.length - 1]
+          const undoEntry: HistoryEntry = { trip: s.trips[id], label: entry.label }
+          return {
+            trips: { ...s.trips, [id]: entry.trip },
+            histories: { ...s.histories, [id]: { past: [...h.past, undoEntry], future: h.future.slice(0, -1) } },
+          }
+        }),
+
+      // ── One-time post-build guidance ────────────────────────────────────────
+
+      guidanceSeen: false,
+      setGuidanceSeen: () => set({ guidanceSeen: true }),
 
       // ── Trip CRUD ──────────────────────────────────────────────────────────
 
@@ -300,11 +393,12 @@ export const useStore = create<AppState>()(
         set((s) => {
           const { [tripId]: _t, ...trips } = s.trips
           const { [tripId]: _c, ...chatHistory } = s.chatHistory
+          const { [tripId]: _h, ...histories } = s.histories
           const activeTripId =
             s.activeTripId === tripId
               ? (Object.keys(trips)[0] ?? null)
               : s.activeTripId
-          return { trips, chatHistory, activeTripId }
+          return { trips, chatHistory, histories, activeTripId }
         }),
 
       setActiveTrip: (tripId) => set({ activeTripId: tripId }),
@@ -321,6 +415,7 @@ export const useStore = create<AppState>()(
           if (!trip) return s
           const from = trip.budget.currency
           if (!currency || currency === from) return s
+          const historyPatch = capture(s, tripId, `Changed currency to ${currency}`)
           const rates = s.exchangeRates ?? FALLBACK_RATES
           const newCap = trip.budget.cap > 0
             ? Math.round(convertAmount(trip.budget.cap, from, currency, rates))
@@ -337,6 +432,7 @@ export const useStore = create<AppState>()(
               }
             : prefs
           return {
+            ...historyPatch,
             trips: {
               ...s.trips,
               [tripId]: {
@@ -359,16 +455,23 @@ export const useStore = create<AppState>()(
         })),
 
       // ── Activities ────────────────────────────────────────────────────────
+      // Each qualifying mutation captures the pre-mutation trip (one history
+      // entry per user gesture — drags capture once per completed drop because
+      // these actions fire once, on drop).
 
       reorderActivities: (tripId, dayId, activities) => {
         const recalculated = recalculateDay(activities)
-        set((s) => ({
-          trips: patchTrip(s.trips, tripId, (trip) => ({
-            days: trip.days.map((d) =>
-              d.id === dayId ? { ...d, activities: recalculated } : d
-            ),
-          })),
-        }))
+        set((s) => {
+          const dayNum = (s.trips[tripId]?.days.findIndex((d) => d.id === dayId) ?? 0) + 1
+          return {
+            ...capture(s, tripId, `Reordered Day ${dayNum}`),
+            trips: patchTrip(s.trips, tripId, (trip) => ({
+              days: trip.days.map((d) =>
+                d.id === dayId ? { ...d, activities: recalculated } : d
+              ),
+            })),
+          }
+        })
       },
 
       moveActivity: (tripId, fromDayId, toDayId, activityId, toIndex) => {
@@ -387,7 +490,9 @@ export const useStore = create<AppState>()(
           ...toDay.activities.slice(toIndex),
         ])
 
+        const toDayNum = trip.days.findIndex((d) => d.id === toDayId) + 1
         set((s) => ({
+          ...capture(s, tripId, `Moved ${activity.title} to Day ${toDayNum}`),
           trips: patchTrip(s.trips, tripId, (t) => ({
             days: t.days.map((d) => {
               if (d.id === fromDayId) return { ...d, activities: newFrom }
@@ -399,63 +504,80 @@ export const useStore = create<AppState>()(
       },
 
       updateActivity: (tripId, dayId, activityId, patch) =>
-        set((s) => ({
-          trips: patchTrip(s.trips, tripId, (trip) => ({
-            days: trip.days.map((d) => {
-              if (d.id !== dayId) return d
-              const activities = recalculateDay(
-                d.activities.map((a) => (a.id === activityId ? { ...a, ...patch } : a))
-              )
-              return { ...d, activities }
-            }),
-          })),
-        })),
+        set((s) => {
+          const title = s.trips[tripId]?.days.find((d) => d.id === dayId)?.activities.find((a) => a.id === activityId)?.title ?? 'activity'
+          return {
+            ...capture(s, tripId, `Edited ${title}`),
+            trips: patchTrip(s.trips, tripId, (trip) => ({
+              days: trip.days.map((d) => {
+                if (d.id !== dayId) return d
+                const activities = recalculateDay(
+                  d.activities.map((a) => (a.id === activityId ? { ...a, ...patch } : a))
+                )
+                return { ...d, activities }
+              }),
+            })),
+          }
+        }),
 
       saveActivityEdit: (tripId, dayId, activityId, patch) =>
-        set((s) => ({
-          trips: patchTrip(s.trips, tripId, (trip) => ({
-            days: trip.days.map((d) => {
-              if (d.id !== dayId) return d
-              const idx = d.activities.findIndex((a) => a.id === activityId)
-              // If the start time was edited, anchor the reflow at THIS card so
-              // the new time sticks and only downstream timings shift. Otherwise
-              // anchor at the day start (index 0) as drag/duration changes do.
-              const anchor = patch.startTime !== undefined && idx > 0 ? idx : 0
-              const merged = d.activities.map((a) =>
-                a.id === activityId ? { ...a, ...patch, locked: true } : a
-              )
-              return { ...d, activities: recalculateDay(merged, anchor) }
-            }),
-          })),
-        })),
+        set((s) => {
+          const title = s.trips[tripId]?.days.find((d) => d.id === dayId)?.activities.find((a) => a.id === activityId)?.title ?? 'activity'
+          return {
+            ...capture(s, tripId, `Edited ${title}`),
+            trips: patchTrip(s.trips, tripId, (trip) => ({
+              days: trip.days.map((d) => {
+                if (d.id !== dayId) return d
+                const idx = d.activities.findIndex((a) => a.id === activityId)
+                // If the start time was edited, anchor the reflow at THIS card so
+                // the new time sticks and only downstream timings shift. Otherwise
+                // anchor at the day start (index 0) as drag/duration changes do.
+                const anchor = patch.startTime !== undefined && idx > 0 ? idx : 0
+                const merged = d.activities.map((a) =>
+                  a.id === activityId ? { ...a, ...patch, locked: true } : a
+                )
+                return { ...d, activities: recalculateDay(merged, anchor) }
+              }),
+            })),
+          }
+        }),
 
       deleteActivity: (tripId, dayId, activityId) =>
-        set((s) => ({
-          trips: patchTrip(s.trips, tripId, (trip) => ({
-            days: trip.days.map((d) => {
-              if (d.id !== dayId) return d
-              return {
-                ...d,
-                activities: recalculateDay(d.activities.filter((a) => a.id !== activityId)),
-              }
-            }),
-          })),
-        })),
+        set((s) => {
+          const title = s.trips[tripId]?.days.find((d) => d.id === dayId)?.activities.find((a) => a.id === activityId)?.title ?? 'activity'
+          return {
+            ...capture(s, tripId, `Deleted ${title}`),
+            trips: patchTrip(s.trips, tripId, (trip) => ({
+              days: trip.days.map((d) => {
+                if (d.id !== dayId) return d
+                return {
+                  ...d,
+                  activities: recalculateDay(d.activities.filter((a) => a.id !== activityId)),
+                }
+              }),
+            })),
+          }
+        }),
 
       toggleActivityLock: (tripId, dayId, activityId) =>
-        set((s) => ({
-          trips: patchTrip(s.trips, tripId, (trip) => ({
-            days: trip.days.map((d) => {
-              if (d.id !== dayId) return d
-              return {
-                ...d,
-                activities: d.activities.map((a) =>
-                  a.id === activityId ? { ...a, locked: !a.locked } : a
-                ),
-              }
-            }),
-          })),
-        })),
+        set((s) => {
+          const act = s.trips[tripId]?.days.find((d) => d.id === dayId)?.activities.find((a) => a.id === activityId)
+          const label = act ? `${act.locked ? 'Unlocked' : 'Locked'} ${act.title}` : 'Toggled lock'
+          return {
+            ...capture(s, tripId, label),
+            trips: patchTrip(s.trips, tripId, (trip) => ({
+              days: trip.days.map((d) => {
+                if (d.id !== dayId) return d
+                return {
+                  ...d,
+                  activities: d.activities.map((a) =>
+                    a.id === activityId ? { ...a, locked: !a.locked } : a
+                  ),
+                }
+              }),
+            })),
+          }
+        }),
 
       // ── Chat ──────────────────────────────────────────────────────────────
 
@@ -504,19 +626,27 @@ export const useStore = create<AppState>()(
       // ── Day titles (cosmetic — no lock, no recalc) ──────────────────────────
 
       setDayTitle: (tripId, dayId, title) =>
-        set((s) => ({
-          trips: patchTrip(s.trips, tripId, (trip) => ({
-            days: trip.days.map((d) => (d.id === dayId ? { ...d, dayTitle: title } : d)),
-          })),
-        })),
+        set((s) => {
+          const dayNum = (s.trips[tripId]?.days.findIndex((d) => d.id === dayId) ?? 0) + 1
+          return {
+            ...capture(s, tripId, `Renamed Day ${dayNum}`),
+            trips: patchTrip(s.trips, tripId, (trip) => ({
+              days: trip.days.map((d) => (d.id === dayId ? { ...d, dayTitle: title } : d)),
+            })),
+          }
+        }),
 
       // ── Checklist ───────────────────────────────────────────────────────────
 
       setChecklist: (tripId, items) =>
-        set((s) => ({ trips: patchTrip(s.trips, tripId, () => ({ checklist: items })) })),
+        set((s) => ({
+          ...capture(s, tripId, 'Updated checklist'),
+          trips: patchTrip(s.trips, tripId, () => ({ checklist: items })),
+        })),
 
       addChecklistItem: (tripId, text, section) =>
         set((s) => ({
+          ...capture(s, tripId, `Added "${text}" to checklist`),
           trips: patchTrip(s.trips, tripId, (trip) => {
             const list = trip.checklist ?? []
             const order = list.filter((i) => i.section === section).length
@@ -526,44 +656,64 @@ export const useStore = create<AppState>()(
         })),
 
       toggleChecklistItem: (tripId, itemId) =>
-        set((s) => ({
-          trips: patchTrip(s.trips, tripId, (trip) => ({
-            checklist: (trip.checklist ?? []).map((i) => (i.id === itemId ? { ...i, done: !i.done } : i)),
-          })),
-        })),
+        set((s) => {
+          const item = s.trips[tripId]?.checklist?.find((i) => i.id === itemId)
+          return {
+            ...capture(s, tripId, item ? `${item.done ? 'Unchecked' : 'Checked'} "${item.text}"` : 'Toggled checklist item'),
+            trips: patchTrip(s.trips, tripId, (trip) => ({
+              checklist: (trip.checklist ?? []).map((i) => (i.id === itemId ? { ...i, done: !i.done } : i)),
+            })),
+          }
+        }),
 
       deleteChecklistItem: (tripId, itemId) =>
-        set((s) => ({
-          trips: patchTrip(s.trips, tripId, (trip) => ({
-            checklist: (trip.checklist ?? []).filter((i) => i.id !== itemId),
-          })),
-        })),
+        set((s) => {
+          const item = s.trips[tripId]?.checklist?.find((i) => i.id === itemId)
+          return {
+            ...capture(s, tripId, item ? `Deleted "${item.text}" from checklist` : 'Deleted checklist item'),
+            trips: patchTrip(s.trips, tripId, (trip) => ({
+              checklist: (trip.checklist ?? []).filter((i) => i.id !== itemId),
+            })),
+          }
+        }),
 
       reorderChecklist: (tripId, items) =>
-        set((s) => ({ trips: patchTrip(s.trips, tripId, () => ({ checklist: items })) })),
+        set((s) => ({
+          ...capture(s, tripId, 'Reordered checklist'),
+          trips: patchTrip(s.trips, tripId, () => ({ checklist: items })),
+        })),
 
       // ── Reservations ────────────────────────────────────────────────────────
 
       addReservation: (tripId, reservation) =>
         set((s) => ({
+          ...capture(s, tripId, `Added reservation "${reservation.name}"`),
           trips: patchTrip(s.trips, tripId, (trip) => ({
             reservations: [...(trip.reservations ?? []), reservation],
           })),
         })),
 
       updateReservation: (tripId, reservationId, patch) =>
-        set((s) => ({
-          trips: patchTrip(s.trips, tripId, (trip) => ({
-            reservations: (trip.reservations ?? []).map((r) => (r.id === reservationId ? { ...r, ...patch } : r)),
-          })),
-        })),
+        set((s) => {
+          const r = s.trips[tripId]?.reservations?.find((x) => x.id === reservationId)
+          return {
+            ...capture(s, tripId, r ? `Edited reservation "${r.name}"` : 'Edited reservation'),
+            trips: patchTrip(s.trips, tripId, (trip) => ({
+              reservations: (trip.reservations ?? []).map((x) => (x.id === reservationId ? { ...x, ...patch } : x)),
+            })),
+          }
+        }),
 
       deleteReservation: (tripId, reservationId) =>
-        set((s) => ({
-          trips: patchTrip(s.trips, tripId, (trip) => ({
-            reservations: (trip.reservations ?? []).filter((r) => r.id !== reservationId),
-          })),
-        })),
+        set((s) => {
+          const r = s.trips[tripId]?.reservations?.find((x) => x.id === reservationId)
+          return {
+            ...capture(s, tripId, r ? `Deleted reservation "${r.name}"` : 'Deleted reservation'),
+            trips: patchTrip(s.trips, tripId, (trip) => ({
+              reservations: (trip.reservations ?? []).filter((x) => x.id !== reservationId),
+            })),
+          }
+        }),
 
       // ── Weather ───────────────────────────────────────────────────────────
       // Weather is transient data — we update days directly without bumping updatedAt.
@@ -605,6 +755,8 @@ export const useStore = create<AppState>()(
         draftPreferences: s.draftPreferences,
         userDefaults: s.userDefaults,
         wizard: s.wizard,   // persist so a refresh mid-wizard resumes at the same step
+        guidanceSeen: s.guidanceSeen, // one-time coach marks — never show twice
+        // histories intentionally NOT persisted: undo is in-memory only (CLAUDE.md)
       }),
     }
   )

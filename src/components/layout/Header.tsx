@@ -149,6 +149,7 @@ export function Header({ chatOpen, onToggleChat, chatDisabled = false, chatUnrea
       <button
         onClick={onToggleChat}
         disabled={chatDisabled}
+        data-coach="chat"
         title={chatDisabled ? 'Available once your trip is built' : undefined}
         className={cn(
           'relative flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-[13px] font-medium transition-all duration-150',

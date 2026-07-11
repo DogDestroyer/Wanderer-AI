@@ -40,6 +40,7 @@ export function SortableActivityCard({
 }: Props) {
   const toggleActivityLock = useStore((s) => s.toggleActivityLock)
   const saveActivityEdit = useStore((s) => s.saveActivityEdit)
+  const deleteActivity = useStore((s) => s.deleteActivity)
   const addReservation = useStore((s) => s.addReservation)
   const reservations = useStore((s) => s.trips[tripId]?.reservations) ?? []
   const isReserved = reservations.some((r) => r.activityId === activity.id && r.status !== 'cancelled')
@@ -47,6 +48,16 @@ export function SortableActivityCard({
   function handleReserve() {
     addReservation(tripId, reservationFromActivity(activity, dayDate))
     showToast({ message: `“${activity.title}” marked as reserved`, type: 'success' })
+  }
+
+  function handleDelete() {
+    deleteActivity(tripId, dayId, activity.id)
+    // Destructive → the toast IS the undo discovery surface (6s).
+    showToast({
+      message: `Deleted ${activity.title}`,
+      type: 'info',
+      action: { label: 'Undo', onClick: () => useStore.getState().undo() },
+    })
   }
 
   const {
@@ -99,11 +110,13 @@ export function SortableActivityCard({
           {...listeners}
           tabIndex={-1}
           aria-label="Drag to reorder"
+          data-coach="drag"
           className={cn(
             'absolute left-0 inset-y-0 w-4 z-10',
             'flex items-center justify-center',
             'cursor-grab active:cursor-grabbing touch-none',
-            'opacity-0 group-hover/sortable:opacity-100 transition-opacity',
+            // Visible on touch devices (no hover); hover-reveal on desktop.
+            'opacity-100 md:opacity-0 md:group-hover/sortable:opacity-100 transition-opacity',
             'focus:outline-none',
           )}
         >
@@ -119,6 +132,7 @@ export function SortableActivityCard({
           showLocalPrices={showLocalPrices}
           onToggleLock={() => toggleActivityLock(tripId, dayId, activity.id)}
           onSaveEdit={handleSaveEdit}
+          onDelete={handleDelete}
           isReserved={isReserved}
           onReserve={handleReserve}
         />

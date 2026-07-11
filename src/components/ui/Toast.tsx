@@ -11,6 +11,8 @@ export interface ToastPayload {
   message: string
   type?: 'success' | 'info' | 'warning'
   duration?: number
+  /** Optional action button (e.g. Undo). Action toasts default to 6s. */
+  action?: { label: string; onClick: () => void }
 }
 
 interface ToastItem extends ToastPayload {
@@ -30,7 +32,7 @@ export function ToastContainer() {
       setToasts((prev) => [...prev, { ...detail, id }])
       setTimeout(
         () => setToasts((prev) => prev.filter((t) => t.id !== id)),
-        detail.duration ?? 3200
+        detail.duration ?? (detail.action ? 6000 : 3200)
       )
     }
     document.addEventListener('wandr:toast', handler)
@@ -65,6 +67,17 @@ export function ToastContainer() {
               <Info size={13} className="text-[#888] shrink-0" />
             )}
             {toast.message}
+            {toast.action && (
+              <button
+                onClick={() => {
+                  toast.action!.onClick()
+                  setToasts((prev) => prev.filter((t) => t.id !== toast.id))
+                }}
+                className="ml-1 -mr-1 px-2.5 py-1 rounded-lg bg-white text-black text-[12px] font-semibold hover:bg-[#e8e8e8] transition-colors shrink-0"
+              >
+                {toast.action.label}
+              </button>
+            )}
           </motion.div>
         ))}
       </AnimatePresence>

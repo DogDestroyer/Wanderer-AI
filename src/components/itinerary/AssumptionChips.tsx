@@ -135,6 +135,9 @@ function ChipEditor({
   const updateTrip = useStore((s) => s.updateTrip)
 
   function applyChange(newValue: string, prefsPatch: Partial<TripPlan['preferences']>, tripPatch?: Partial<TripPlan>) {
+    // Undoable: the chip correction itself (the agent re-plan it triggers
+    // captures separately when its patch applies).
+    useStore.getState().captureHistory(trip.id, `Changed ${assumption.label} to ${newValue}`)
     // Update the assumption source and value
     const newAssumptions = trip.assumptions?.map((a) =>
       a.field === assumption.field

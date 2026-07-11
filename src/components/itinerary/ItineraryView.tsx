@@ -10,14 +10,16 @@ import {
   MeasuringStrategy,
   useSensor,
   useSensors,
-  closestCorners,
+  pointerWithin,
+  closestCenter,
+  type CollisionDetection,
   type DragStartEvent,
   type DragOverEvent,
   type DragEndEvent,
   type Modifier,
 } from '@dnd-kit/core'
 import { arrayMove } from '@dnd-kit/sortable'
-import { MapPin, Calendar, Gauge, Star, SlidersHorizontal, AlertTriangle, ChevronDown } from 'lucide-react'
+import { MapPin, Calendar, Gauge, Star, SlidersHorizontal, AlertTriangle, ChevronDown, Undo2, Redo2 } from 'lucide-react'
 import type { TripPlan, Day, Activity } from '@/lib/types'
 import { useStore } from '@/lib/store'
 import {
@@ -57,6 +59,17 @@ interface ItineraryViewProps {
 
 // ─── Drag modifier: restrict to vertical axis only ───────────────────────────
 const restrictToVerticalAxis: Modifier = ({ transform }) => ({ ...transform, x: 0 })
+
+// ─── Collision detection: the POINTER decides, not the dragged rect ──────────
+// closestCorners compared the whole translated card rect against droppables,
+// which resolved `over` to the card BELOW the pointer (and even the next day's
+// container) on small vertical drags — cards teleported across days. The
+// pointer is the user's intent: pick the droppable under it; fall back to
+// closestCenter only when the pointer is outside every droppable.
+const pointerFirstCollision: CollisionDetection = (args) => {
+  const within = pointerWithin(args)
+  return within.length > 0 ? within : closestCenter(args)
+}
 
 export function ItineraryView({ trip, building }: ItineraryViewProps) {
   const { name, destination, startDate, endDate, budget, preferences } = trip
@@ -266,6 +279,7 @@ export function ItineraryView({ trip, building }: ItineraryViewProps) {
             </div>
           </div>
           <div className="flex items-center gap-2 shrink-0">
+            {!building && <UndoRedoButtons tripId={trip.id} />}
             <ExportMenu trip={trip} rates={rates} />
             {preferences && (
               <button
@@ -465,7 +479,7 @@ export function ItineraryView({ trip, building }: ItineraryViewProps) {
           ) : (
             <DndContext
               sensors={sensors}
-              collisionDetection={closestCorners}
+              collisionDetection={pointerFirstCollision}
               modifiers={[restrictToVerticalAxis]}
               measuring={{ droppable: { strategy: MeasuringStrategy.Always } }}
               onDragStart={handleDragStart}
@@ -570,6 +584,50 @@ export function ItineraryView({ trip, building }: ItineraryViewProps) {
         </div>
       )}
     </div>
+  )
+}
+
+// ─── UndoRedoButtons ──────────────────────────────────────────────────────────
+// Header surface for the per-trip history. Tooltips show WHAT would be undone/
+// redone; disabled when the respective stack is empty. Hidden during a build.
+
+function UndoRedoButtons({ tripId }: { tripId: string }) {
+  const history = useStore((s) => s.histories[tripId])
+  const undo = useStore((s) => s.undo)
+  const redo = useStore((s) => s.redo)
+  const undoLabel = history?.past.length ? history.past[history.past.length - 1].label : null
+  const redoLabel = history?.future.length ? history.future[history.future.length - 1].label : null
+
+  const btnCls = (enabled: boolean) => cn(
+    'w-8 h-8 rounded-lg flex items-center justify-center border transition-colors',
+    enabled
+      ? 'bg-[#1a1a1a] text-[#888] border-[#2a2a2a] hover:text-[#f0f0f0] hover:border-[#444]'
+      : 'bg-[#141414] text-[#333] border-[#1f1f1f] cursor-not-allowed',
+  )
+
+  return (
+    <>
+      <button
+        onClick={undo}
+        disabled={!undoLabel}
+        aria-label={undoLabel ? `Undo: ${undoLabel}` : 'Undo'}
+        title={undoLabel ? `Undo: ${undoLabel}` : 'Nothing to undo'}
+        data-testid="undo-button"
+        className={btnCls(!!undoLabel)}
+      >
+        <Undo2 size={14} />
+      </button>
+      <button
+        onClick={redo}
+        disabled={!redoLabel}
+        aria-label={redoLabel ? `Redo: ${redoLabel}` : 'Redo'}
+        title={redoLabel ? `Redo: ${redoLabel}` : 'Nothing to redo'}
+        data-testid="redo-button"
+        className={btnCls(!!redoLabel)}
+      >
+        <Redo2 size={14} />
+      </button>
+    </>
   )
 }
 

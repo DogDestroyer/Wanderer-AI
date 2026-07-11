@@ -39,17 +39,36 @@ export function useChatSend() {
   const activePreferences = activeTrip?.preferences ?? draftPreferences
 
   // ── Apply a completed response to the store ─────────────────────────────────
+  // `capture` records ONE undo entry for the whole applied response (single-shot
+  // edits only — skeleton/fill/resume are construction, excluded from history).
   const applyTripResponse = useCallback((
     response: AgentTripResponse,
     chatId: string,
     snapshotActiveTripId: string | null,
     updateMessage = true,
+    capture = false,
   ) => {
     // Update message BEFORE createTrip so the '__new__' key migration captures it.
     // Fill batches pass updateMessage=false so they don't clobber the skeleton's preamble.
     if (updateMessage) updateLastAssistantMessage(chatId, response.message, false)
 
     const { action, trip, patch } = response
+
+    // Undo entry BEFORE the mutation lands — labelled from what it touched.
+    if (capture && snapshotActiveTripId && action !== 'create_trip' && action !== 'create' && action !== 'chat-only') {
+      const dayCount = patch?.days?.length ?? 0
+      const label =
+        action === 'replace_trip' ? 'AI rebuilt the plan'
+        : dayCount > 0 ? `AI updated ${dayCount === 1 ? 'a day' : `${dayCount} days`}`
+        : 'AI updated the trip'
+      useStore.getState().captureHistory(snapshotActiveTripId, label)
+      // Discovery surface: agent patches are large mutations → offer instant undo.
+      showToast({
+        message: label,
+        type: 'success',
+        action: { label: 'Undo', onClick: () => useStore.getState().undo() },
+      })
+    }
 
     if ((action === 'create_trip' || action === 'create') && trip) {
       // Attach assumptions to the trip object before saving
@@ -406,7 +425,7 @@ export function useChatSend() {
       const editBody = { messages: baseHistory, trip: activeTrip ?? null, agentSettings, preferences: sendPreferences, intent }
       const { jsonError, cutOff, serverError } = await streamOnce(editBody, {
         onDelta: (t) => updateLastAssistantMessage(chatId, t),
-        onDone: (resp) => applyTripResponse(resp, chatId, snapshotActiveTripId),
+        onDone: (resp) => applyTripResponse(resp, chatId, snapshotActiveTripId, true, true),
       })
 
       if (serverError) {
@@ -426,7 +445,7 @@ export function useChatSend() {
         ]
         const retry = await streamOnce(
           { ...editBody, messages: retryHistory },
-          { onDone: (resp) => applyTripResponse(resp, chatId, snapshotActiveTripId) },
+          { onDone: (resp) => applyTripResponse(resp, chatId, snapshotActiveTripId, true, true) },
         )
         if (retry.cutOff) {
           handleCutOff(chatId)
