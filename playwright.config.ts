@@ -13,6 +13,8 @@ import { defineConfig } from '@playwright/test'
 //   DEMO_PASSWORD=... BASE_URL=https://... npx playwright test
 export default defineConfig({
   testDir: './tests',
+  // tests/unit/** are vitest unit tests (npm run test:unit), not Playwright's.
+  testIgnore: 'unit/**',
   // Chunked generation (skeleton + sequential fill batches) for a multi-day trip
   // can take a few minutes end-to-end; allow generous room plus setup/login.
   timeout: 300_000,

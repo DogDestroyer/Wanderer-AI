@@ -6,7 +6,8 @@
     "dev": "node scripts/prebuild.mjs && next dev",
     "build": "node scripts/prebuild.mjs && next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test:unit": "vitest run"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.104.1",
@@ -40,6 +41,7 @@
     "eslint-config-next": "16.2.9",
     "tailwindcss": "^4",
     "typescript": "^5",
+    "vitest": "^4.1.10",
     "world-countries": "^5.1.0"
   }
 }
