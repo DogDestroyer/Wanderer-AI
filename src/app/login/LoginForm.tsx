@@ -41,12 +41,13 @@ export function LoginForm() {
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
       <div>
-        <label className="block text-[11px] font-medium text-[#555] mb-1.5">
+        <label htmlFor="passcode" className="block text-[11px] font-medium text-[#555] mb-1.5">
           Passcode
         </label>
         <div className="relative">
           <Lock size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#444]" />
           <input
+            id="passcode"
             type={showPassword ? 'text' : 'password'}
             value={password}
             onChange={(e) => setPassword(e.target.value)}
@@ -55,7 +56,7 @@ export function LoginForm() {
             required
             className={cn(
               'w-full bg-[#161616] border border-[#2a2a2a] text-[#f0f0f0]',
-              'placeholder:text-[#333] rounded-lg px-3 py-2.5 pl-9 pr-9 text-[13px]',
+              'placeholder:text-[#555] rounded-lg px-3 py-2.5 pl-9 pr-9 text-[13px]',
               'focus:outline-none focus:border-[#444]',
               'transition-colors'
             )}
@@ -63,6 +64,7 @@ export function LoginForm() {
           <button
             type="button"
             onClick={() => setShowPassword((s) => !s)}
+            aria-label={showPassword ? 'Hide passcode' : 'Show passcode'}
             className="absolute right-3 top-1/2 -translate-y-1/2 text-[#444] hover:text-[#888] transition-colors"
           >
             {showPassword ? <EyeOff size={13} /> : <Eye size={13} />}

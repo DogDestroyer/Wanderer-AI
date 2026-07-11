@@ -220,6 +220,7 @@ export function ItineraryView({ trip, building }: ItineraryViewProps) {
               <button
                 onClick={() => setShowSliders((v) => !v)}
                 title="Adjust pace & budget"
+                aria-label="Adjust pace and budget"
                 className={cn(
                   'w-8 h-8 rounded-lg flex items-center justify-center transition-colors',
                   showSliders

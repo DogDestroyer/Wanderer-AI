@@ -124,6 +124,7 @@ export function Header({ chatOpen, onToggleChat }: HeaderProps) {
                     </div>
                     <button
                       onClick={(e) => handleDelete(trip.id, e)}
+                      aria-label={`Delete trip ${trip.name}`}
                       className="opacity-0 group-hover:opacity-100 ml-2 p-1 rounded hover:bg-[#2a2a2a] text-[#555] hover:text-[#f0f0f0] transition-all shrink-0"
                     >
                       <Trash2 size={11} />

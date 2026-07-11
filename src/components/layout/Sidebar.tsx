@@ -53,6 +53,7 @@ function TripCard({ trip, isActive, onSelect, onDelete }: {
           )}
           <button
             onClick={onDelete}
+            aria-label="Delete trip"
             className={cn(
               'opacity-0 group-hover:opacity-100 transition-opacity p-0.5 rounded',
               isActive ? 'hover:bg-indigo-500 text-indigo-200' : 'hover:bg-slate-700 text-slate-500'

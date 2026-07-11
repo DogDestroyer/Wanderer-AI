@@ -60,7 +60,7 @@ export function Calendar({ value, onSelect }: { value: string | null; onSelect: 
       {/* Weekday header */}
       <div className="grid grid-cols-7 mb-1.5">
         {WEEKDAYS.map((w) => (
-          <span key={w} className="text-center text-[10px] font-medium text-[#444] py-1">{w}</span>
+          <span key={w} className="text-center text-[10px] font-medium text-[#777] py-1">{w}</span>
         ))}
       </div>
 

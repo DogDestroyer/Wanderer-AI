@@ -105,7 +105,7 @@ export function DayCard({ day, index, tripId, tripCurrency, isDraggingAny, rates
                 </button>
               </div>
             )}
-            <p className="text-[11px] text-[#444] leading-tight mt-0.5">
+            <p className="text-[11px] text-[#777] leading-tight mt-0.5">
               {dateStr}
               {activities.length > 0 && ` · ${activities.length} ${activities.length === 1 ? 'activity' : 'activities'}`}
             </p>

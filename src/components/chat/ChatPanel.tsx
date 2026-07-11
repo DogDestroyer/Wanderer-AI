@@ -152,6 +152,7 @@ export function ChatPanel({ locked = false }: { locked?: boolean }) {
           <button
             onClick={() => setShowSettings((v) => !v)}
             title="Agent settings"
+            aria-label="Agent settings"
             className={cn(
               'w-7 h-7 rounded-lg flex items-center justify-center transition-colors',
               showSettings

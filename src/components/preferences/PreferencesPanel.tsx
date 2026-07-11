@@ -212,6 +212,7 @@ export function PreferencesPanel({ open, onClose }: PreferencesPanelProps) {
                 </button>
                 <button
                   onClick={onClose}
+                  aria-label="Close preferences"
                   className="w-7 h-7 rounded-lg flex items-center justify-center text-[#555] hover:text-[#f0f0f0] hover:bg-[#1a1a1a] transition-colors"
                 >
                   <X size={14} />
@@ -432,6 +433,7 @@ export function PreferencesPanel({ open, onClose }: PreferencesPanelProps) {
                         })
                       }
                       title={`Remove "${interest}"`}
+                      aria-label={`Remove interest ${interest}`}
                       className="group flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[12px] font-medium border bg-white text-black border-white transition-all"
                     >
                       <span>{interest}</span>

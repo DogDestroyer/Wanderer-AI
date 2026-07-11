@@ -37,7 +37,7 @@ export function TravelConnector({ minutes }: { minutes: number }) {
   return (
     <div className="flex items-center gap-2 py-1 pl-[72px]">
       <div className="w-px h-4 bg-[#2a2a2a] ml-[7px]" />
-      <span className="text-[10px] text-[#444] font-medium tracking-wide">
+      <span className="text-[10px] text-[#777] font-medium tracking-wide">
         {formatDurationMins(minutes)} travel
       </span>
     </div>
@@ -146,7 +146,7 @@ export function ActivityCard({
         <span className="text-[11px] font-semibold text-[#aaa] leading-tight tabular-nums">
           {formatTime(startTime)}
         </span>
-        <span className="text-[10px] text-[#444] leading-tight tabular-nums">
+        <span className="text-[10px] text-[#777] leading-tight tabular-nums">
           {formatTime(endTime)}
         </span>
       </div>
@@ -279,12 +279,12 @@ export function ActivityCard({
 
         {/* Footer chips */}
         <div className="flex items-center gap-3 mt-1.5">
-          <span className="flex items-center gap-1 text-[10px] text-[#444]">
+          <span className="flex items-center gap-1 text-[10px] text-[#777]">
             <Clock size={9} />
             {formatDurationMins(durationMinutes)}
           </span>
           {location?.name && (
-            <span className="flex items-center gap-1 text-[10px] text-[#444] truncate">
+            <span className="flex items-center gap-1 text-[10px] text-[#777] truncate">
               <MapPin size={9} className="shrink-0" />
               <span className="truncate">{location.name}</span>
             </span>
