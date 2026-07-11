@@ -1,5 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk'
 import type { TripPlan } from '@/lib/types'
+import { rateLimit, clientIp, tooManyRequests } from '@/lib/rateLimit'
 
 const client = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY!,
@@ -82,12 +83,20 @@ Return ONLY the enhanced prompt text. No preamble, no label like "Here is your e
 
 export async function POST(req: Request) {
   try {
+    // Rate limit before any model work (this route runs the priciest model).
+    const rl = rateLimit(`enhance:${clientIp(req)}`, 10, 5 * 60_000)
+    if (!rl.ok) return tooManyRequests(rl.retryAfterMs)
+
     const body = await req.json().catch(() => null)
     const text: string | undefined = body?.text
     const trip: TripPlan | null | undefined = body?.trip
 
     if (!text?.trim()) {
       return Response.json({ enhanced: text ?? '' })
+    }
+    // A prompt to enhance is a short paragraph; anything huge is abuse/bug.
+    if (text.length > 10_000) {
+      return Response.json({ error: 'Text too long.' }, { status: 413 })
     }
 
     const message = await client.messages.create({

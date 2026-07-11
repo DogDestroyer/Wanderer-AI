@@ -1,7 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { timingSafeEqual } from 'crypto'
+
+// Constant-time string comparison (length-safe): hash-length equalisation is
+// overkill for a demo passcode, but comparing equal-length buffers via
+// timingSafeEqual removes the trivial char-by-char timing signal of `!==`.
+function safeEqual(a: string, b: string): boolean {
+  const ba = Buffer.from(a)
+  const bb = Buffer.from(b)
+  if (ba.length !== bb.length) return false
+  return timingSafeEqual(ba, bb)
+}
 
 export async function POST(request: NextRequest) {
-  const { password } = await request.json()
+  const { password } = await request.json().catch(() => ({ password: '' }))
   const demoPassword = process.env.DEMO_PASSWORD
 
   // If DEMO_PASSWORD is not set, reject — this route should never be called
@@ -9,7 +20,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'No password configured' }, { status: 400 })
   }
 
-  if (password !== demoPassword) {
+  if (typeof password !== 'string' || !safeEqual(password, demoPassword)) {
     return NextResponse.json({ error: 'Invalid passcode' }, { status: 401 })
   }
 

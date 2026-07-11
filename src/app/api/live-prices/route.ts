@@ -1,6 +1,7 @@
 import type { AccommodationType } from '@/lib/types'
 import { searchHotels } from '@/lib/providers/liteapi'
 import { searchFlight } from '@/lib/providers/travelpayouts'
+import { rateLimit, clientIp, tooManyRequests } from '@/lib/rateLimit'
 
 // Hotel rates can take ~15s; give headroom but stay modest.
 export const runtime = 'nodejs'
@@ -11,6 +12,9 @@ export const maxDuration = 30
 // Always returns 200 with whatever it could fetch ({} pieces null/empty on
 // failure) so the client never breaks; the caller falls back to AI estimates.
 export async function POST(request: Request): Promise<Response> {
+  const rl = rateLimit(`prices:${clientIp(request)}`, 20, 5 * 60_000)
+  if (!rl.ok) return tooManyRequests(rl.retryAfterMs)
+
   let body: {
     destination?: string
     country?: string
@@ -32,7 +36,8 @@ export async function POST(request: Request): Promise<Response> {
     origin, accommodation = 'mid-range', currency = 'USD', adults = 2,
   } = body
 
-  if (!destination || !startDate || !endDate) {
+  const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
+  if (!destination || !startDate || !endDate || !ISO_DATE.test(startDate) || !ISO_DATE.test(endDate)) {
     return Response.json({ hotels: [], flight: null })
   }
 

@@ -12,16 +12,8 @@ export function proxy(request: NextRequest) {
 
   const { pathname } = request.nextUrl
 
-  // Always allow: landing page, login page, and all API routes.
-  // API routes are protected server-side by the Anthropic API key — they should
-  // NOT be cookie-gated here because a proxy redirect would cause fetch() to
-  // silently receive login-page HTML instead of the expected JSON/SSE response,
-  // making the app appear to "reload" rather than showing a real error.
-  if (
-    pathname === '/' ||
-    pathname === '/login' ||
-    pathname.startsWith('/api/')
-  ) {
+  // Always allow: landing page, login page, and the auth endpoint itself.
+  if (pathname === '/' || pathname === '/login' || pathname === '/api/auth') {
     return NextResponse.next()
   }
 
@@ -31,7 +23,18 @@ export function proxy(request: NextRequest) {
     return NextResponse.next()
   }
 
-  // Send unauthenticated visitors to the login page
+  // API routes: reject with 401 JSON, NEVER a redirect. (A redirect here once
+  // made fetch() silently receive login-page HTML instead of JSON/SSE, which
+  // surfaced as the app "reloading and clearing the chat".) This is what makes
+  // DEMO_PASSWORD actually protect Anthropic/provider credits, not just the UI.
+  if (pathname.startsWith('/api/')) {
+    return NextResponse.json(
+      { error: 'Unauthorized — log in at /login first.' },
+      { status: 401 },
+    )
+  }
+
+  // Pages: send unauthenticated visitors to the login page
   const loginUrl = new URL('/login', request.url)
   loginUrl.searchParams.set('from', pathname)
   return NextResponse.redirect(loginUrl)

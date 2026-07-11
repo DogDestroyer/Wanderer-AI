@@ -2,6 +2,7 @@ import Anthropic from '@anthropic-ai/sdk'
 import type { TripPlan, AgentTripResponse, AgentSettings, TripPreferences } from '@/lib/types'
 import { DEFAULT_AGENT_SETTINGS } from '@/lib/types'
 import { getPaceLabel, getBudgetLabel, getTripStyleLabel, getDiningLabel } from '@/lib/utils'
+import { rateLimit, clientIp, tooManyRequests } from '@/lib/rateLimit'
 
 // ─── Route runtime config (CRITICAL for Vercel) ───────────────────────────────
 // A full itinerary generation takes ~80s. Without an extended maxDuration,
@@ -434,7 +435,18 @@ prices while these real options are available.`
 }
 
 export async function POST(request: Request): Promise<Response> {
-  const body = (await request.json()) as {
+  // Rate limit BEFORE any parsing/model work. Generous for real use (a 10-day
+  // chunked build is ~6 requests; retries a few more), hostile to scripted abuse.
+  const rl = rateLimit(`chat:${clientIp(request)}`, 30, 5 * 60_000)
+  if (!rl.ok) return tooManyRequests(rl.retryAfterMs)
+
+  // Reject oversized payloads before they reach the model (a normal trip body is
+  // well under 200KB; multi-MB bodies are abuse or a client bug).
+  const raw = await request.text()
+  if (raw.length > 512 * 1024) {
+    return Response.json({ error: 'Request too large.' }, { status: 413 })
+  }
+  let body: {
     messages: Array<{ role: 'user' | 'assistant'; content: string }>
     trip?: TripPlan | null
     agentSettings?: AgentSettings
@@ -444,6 +456,14 @@ export async function POST(request: Request): Promise<Response> {
     // 'fill' populates activities for the given day IDs. Absent = single-shot.
     mode?: 'skeleton' | 'fill'
     fillDayIds?: string[]
+  }
+  try {
+    body = JSON.parse(raw)
+  } catch {
+    return Response.json({ error: 'Invalid JSON body.' }, { status: 400 })
+  }
+  if (!Array.isArray(body.messages) || body.messages.length === 0) {
+    return Response.json({ error: 'messages array is required.' }, { status: 400 })
   }
 
   const { messages, trip, agentSettings = DEFAULT_AGENT_SETTINGS, preferences, intent = 'full', mode, fillDayIds } = body
