@@ -4,6 +4,7 @@
 
 **[→ Live demo](https://wanderer-ai.vercel.app/)**
 
+[![CI](https://github.com/DogDestroyer/Wanderer-AI/actions/workflows/ci.yml/badge.svg)](https://github.com/DogDestroyer/Wanderer-AI/actions/workflows/ci.yml)
 [![Next.js](https://img.shields.io/badge/Next.js-16-black?logo=next.js)](https://nextjs.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5-blue?logo=typescript)](https://www.typescriptlang.org/)
 [![Claude](https://img.shields.io/badge/Powered%20by-Claude%20AI-orange)](https://anthropic.com)
