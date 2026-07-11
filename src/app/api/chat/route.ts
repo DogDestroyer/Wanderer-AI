@@ -479,11 +479,29 @@ export async function POST(request: Request): Promise<Response> {
   const modePrompt         = buildModePrompt(mode, fillDayIds)
   const groundingPrompt    = buildHotelGroundingPrompt(trip)
   const today = new Date().toISOString().split('T')[0]
-  // Strip the bulky liveData from the trip JSON (its hotels are summarised in the
-  // grounding block) to keep the prompt lean.
-  const tripForPrompt = trip ? { ...trip, liveData: undefined } : trip
+  // Token diet (measured ~10.2k → ~4-6k tokens for a filled 10-day trip):
+  //  - strip liveData (its hotels are summarised in the grounding block)
+  //  - strip per-day weather (the model never needs it)
+  //  - in FILL mode, collapse days that are NOT in this batch and already have
+  //    activities to one-line summaries — fill mode forbids touching them, so
+  //    their full activity objects are pure cost. Days being filled (and any
+  //    still-empty days) keep their full shape.
+  //  - compact stringify (pretty-printing was ~50% overhead)
+  const fillSet = mode === 'fill' ? new Set(fillDayIds ?? []) : null
+  const tripForPrompt = trip
+    ? {
+        ...trip,
+        liveData: undefined,
+        days: trip.days.map((d) => {
+          if (fillSet && !fillSet.has(d.id) && d.activities.length > 0) {
+            return { id: d.id, date: d.date, dayTitle: d.dayTitle, activityCount: d.activities.length, summarized: true }
+          }
+          return { ...d, weather: undefined } // undefined keys drop out of JSON.stringify
+        }),
+      }
+    : trip
   const systemPrompt = trip
-    ? `${BASE_SYSTEM_PROMPT}${settingsPrompt}${preferencesPrompt}${modePrompt}${groundingPrompt}\n\n## Current active trip\n\nThe user currently has this trip open. Use its day IDs when patching days.\n\n${JSON.stringify(tripForPrompt, null, 2)}`
+    ? `${BASE_SYSTEM_PROMPT}${settingsPrompt}${preferencesPrompt}${modePrompt}${groundingPrompt}\n\n## Current active trip\n\nThe user currently has this trip open. Use its day IDs when patching days. Days marked "summarized": true are already built and omitted for brevity — they exist and must not be touched.\n\n${JSON.stringify(tripForPrompt)}`
     : `${BASE_SYSTEM_PROMPT}${settingsPrompt}${preferencesPrompt}${modePrompt}\n\nNo active trip. Today's date: ${today}. Always use action "create_trip".`
 
   const encoder = new TextEncoder()
