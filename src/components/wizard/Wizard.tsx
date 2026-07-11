@@ -10,8 +10,7 @@ import {
   WIZARD_STEPS, WIZARD_TOTAL, composeWizardMessage, wizardToPreferences, isStepAnswered, scaffoldFromDraft,
   type WizardStepId,
 } from '@/lib/wizard'
-import { StepCountries } from './steps/StepCountries'
-import { StepCities } from './steps/StepCities'
+import dynamic from 'next/dynamic'
 import { StepDays } from './steps/StepDays'
 import { StepDates } from './steps/StepDates'
 import { StepPeople } from './steps/StepPeople'
@@ -21,6 +20,18 @@ import { StepNotes } from './steps/StepNotes'
 import type { StepProps } from './stepTypes'
 
 const EASE = [0.16, 1, 0.3, 1] as [number, number, number, number]
+
+// The countries/cities steps carry ~400KB of static datasets (all countries +
+// 4.5k world cities). Load them as a separate on-demand chunk so the datasets
+// never sit in the initial bundle — returning users with trips skip them
+// entirely, and fresh starts fetch them after first paint.
+const stepLoading = () => (
+  <div className="flex justify-center py-10" aria-label="Loading step">
+    <div className="w-5 h-5 border border-[#333] border-t-white rounded-full animate-spin" />
+  </div>
+)
+const StepCountries = dynamic(() => import('./steps/StepCountries').then((m) => m.StepCountries), { ssr: false, loading: stepLoading })
+const StepCities = dynamic(() => import('./steps/StepCities').then((m) => m.StepCities), { ssr: false, loading: stepLoading })
 
 const META: Record<WizardStepId, { title: string; subtitle?: string }> = {
   countries: { title: 'Where would you like to go?', subtitle: 'Pick one or more countries — search or tap a favourite.' },
